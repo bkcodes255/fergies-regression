@@ -83,7 +83,8 @@ CREATE TABLE fixtures (
     team_h_score         INTEGER,
     team_a_score         INTEGER,
     kickoff_time         TIMESTAMPTZ,
-    finished             BOOLEAN NOT NULL DEFAULT false,
+    finished             BOOLEAN NOT NULL DEFAULT false,   -- official: bonus/stats locked, may lag full-time by 1+ days
+    finished_provisional BOOLEAN NOT NULL DEFAULT false,   -- match is actually over (full-time whistle); use this for "has this team played" logic
     team_h_difficulty    SMALLINT,
     team_a_difficulty    SMALLINT,
     pulled_at            TIMESTAMPTZ NOT NULL,

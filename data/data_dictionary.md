@@ -73,6 +73,7 @@ season. The schema keys on the season-stable `code` field for players/teams inst
 | `team_h_score` / `team_a_score` | `fixtures[].team_h_score` / `.team_a_score` |
 | `kickoff_time` | `fixtures[].kickoff_time` |
 | `team_h_difficulty` / `team_a_difficulty` | `fixtures[].team_h_difficulty` / `.team_a_difficulty` — this is FPL's own FDR (1-5); the plan's custom Fixture Difficulty Score is computed downstream, this column is just the raw input |
+| `finished_provisional` | `fixtures[].finished_provisional` | **Read this carefully — two different "finished" signals exist and they are not interchangeable.** `finished` only flips to `true` once bonus points and stats are officially locked in, which can lag the actual final whistle by a day or more. `finished_provisional` flips to `true` at full-time, with the score already final (confirmed empirically: Arsenal's fixture 1 showed `team_h_score=3`, `finished_provisional=true`, `finished=false` several hours after full time). **Use `finished_provisional` for "has this team played yet" logic** (team form, fixture-difficulty views all use this) — using `finished` alone silently excludes every match that hasn't cleared official confirmation yet, which in practice is most of them at any given moment. Reserve `finished` for knowing when a gameweek's points are truly final and safe to treat as immutable for backtesting. |
 
 ## `player_gameweek_stats` (core fact table, keyed by `season` + `event_id` + `player_code`)
 

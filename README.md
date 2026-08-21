@@ -17,7 +17,13 @@ Built for the 2026/27 season, used to run a real FPL team every gameweek as its 
 - [x] FPL API ingestion client (`src/ingestion/`)
 - [x] First full data pull into local Postgres (2026/27 season, GW1)
 
-**Phase 2 — Analytics** (next up)
+**Phase 2 — Analytics** (in progress)
+
+- [x] Player season-to-date totals + efficiency ratios (`sql/analytics.sql`, `v_player_season_totals`)
+- [x] Player rolling/weighted form (`v_player_rolling_form`, `v_player_weighted_form`)
+- [x] Team form + Fixture Difficulty Score v1 (`v_team_form`, `v_fixture_difficulty`)
+- [ ] Ownership/transfer trend views
+- [ ] Notebook-based exploration of the above against real data
 
 See `data/data_dictionary.md` for exact field-level mapping from the FPL API to this schema,
 including two verified gotchas worth reading before touching the data:

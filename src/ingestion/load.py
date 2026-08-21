@@ -183,7 +183,8 @@ def upsert_fixtures(
             season, fx["id"], fx.get("event"),
             team_id_to_code[fx["team_h"]], team_id_to_code[fx["team_a"]],
             fx.get("team_h_score"), fx.get("team_a_score"), fx.get("kickoff_time"),
-            fx.get("finished", False), fx.get("team_h_difficulty"), fx.get("team_a_difficulty"),
+            fx.get("finished", False), fx.get("finished_provisional", False),
+            fx.get("team_h_difficulty"), fx.get("team_a_difficulty"),
             pulled_at,
         )
         for fx in fixtures
@@ -193,13 +194,14 @@ def upsert_fixtures(
         """
         INSERT INTO fixtures (
             season, fpl_fixture_id, event_id, team_h_code, team_a_code,
-            team_h_score, team_a_score, kickoff_time, finished,
+            team_h_score, team_a_score, kickoff_time, finished, finished_provisional,
             team_h_difficulty, team_a_difficulty, pulled_at
         ) VALUES %s
         ON CONFLICT (season, fpl_fixture_id) DO UPDATE SET
             event_id = EXCLUDED.event_id,
             team_h_score = EXCLUDED.team_h_score, team_a_score = EXCLUDED.team_a_score,
             kickoff_time = EXCLUDED.kickoff_time, finished = EXCLUDED.finished,
+            finished_provisional = EXCLUDED.finished_provisional,
             team_h_difficulty = EXCLUDED.team_h_difficulty, team_a_difficulty = EXCLUDED.team_a_difficulty,
             pulled_at = EXCLUDED.pulled_at
         """,
