@@ -34,9 +34,31 @@ including three verified gotchas worth reading before touching the data:
 3. `fixtures.finished` lags the actual final whistle by 1+ days (waits for official bonus/stat
    confirmation) — `fixtures.finished_provisional` is what actually flips true at full-time.
 
-To re-run the notebook after a fresh ingestion: the venv has a registered Jupyter kernel
-(`fergies-regression`) — open `notebooks/02_player_analysis.ipynb` in VS Code or Jupyter and
-select that kernel, or re-execute headlessly with `nbclient`.
+To re-run a notebook after a fresh ingestion or retraining: the venv has a registered Jupyter
+kernel (`fergies-regression`) — open the notebook in VS Code or Jupyter and select that kernel,
+or re-execute headlessly with `nbclient`.
+
+**Phase 4 — Prediction** (complete)
+
+- [x] Historical training data: 3 seasons (2023-24, 2024-25, 2025-26) from the
+      vaastav/Fantasy-Premier-League archive, leak-free rolling features
+      (`src/features/historical_features.py`)
+- [x] Minutes model, points-per-90 model, and a direct total-points model — each compared across
+      baseline/linear regression/Random Forest/XGBoost (`src/models/train.py`), tracked in the
+      `model_versions` table
+- [x] Model comparison notebook with real backtest results (`notebooks/06_model_comparison.ipynb`)
+
+**Key finding, worth reading before using these models**: the plan's original design predicts
+`points_per_90` and `minutes` separately and combines them
+(`expected_points = points_per_90_pred * minutes_pred / 90`). Backtested on the full held-out
+2025-26 season, that decomposition actually *underperforms* a single model predicting total
+points directly (R²=0.117 vs R²=0.317) — about 61% of player-gameweeks are unused/fringe
+players with exactly 0 minutes, and two separately-noisy nonzero-biased predictions multiply
+into a nonzero result more often than a direct model, which can learn "this profile → 0" as one
+clean pattern. **The direct Random Forest model on `total_points` is the recommended
+predictor.** The minutes model (R²=0.636) is still kept for rotation-risk flagging, just not as
+a multiplicative input to points prediction. See `notebooks/06_model_comparison.ipynb` for the
+full comparison.
 
 ## Build phases
 

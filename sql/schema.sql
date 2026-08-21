@@ -165,6 +165,23 @@ CREATE TABLE raw_snapshots (
     payload     JSONB NOT NULL
 );
 
+-- Model provenance/tracking (Phase 4+). One row per trained model variant, so we can
+-- answer "did the fancier model actually improve decision-making" later, not just assume it.
+CREATE TABLE model_versions (
+    model_id            BIGSERIAL PRIMARY KEY,
+    model_type           TEXT NOT NULL,       -- 'baseline' | 'linear_regression' | 'random_forest' | 'xgboost'
+    target               TEXT NOT NULL,       -- 'minutes' | 'points_per_90'
+    training_seasons     TEXT[] NOT NULL,
+    test_season          TEXT NOT NULL,
+    features             JSONB NOT NULL,
+    hyperparameters       JSONB,
+    mae                  NUMERIC(8,4),
+    rmse                 NUMERIC(8,4),
+    r2                   NUMERIC(8,4),
+    artifact_path        TEXT,                -- where the serialized model lives (models/, gitignored)
+    trained_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX idx_pgs_player ON player_gameweek_stats(player_code);
 CREATE INDEX idx_pgs_event ON player_gameweek_stats(season, event_id);
 CREATE INDEX idx_price_player ON player_price_snapshots(player_code);
