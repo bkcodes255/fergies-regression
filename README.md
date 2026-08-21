@@ -1,6 +1,6 @@
 # Fergie's Regression
 
-> "Regression to the mean. Except Bruno."
+> "An FPL Analytics Report"
 
 A data-driven Fantasy Premier League decision-support system: ingests live FPL data, engineers
 player/fixture features, predicts expected player performance, optimizes squad decisions under
@@ -10,12 +10,14 @@ Built for the 2026/27 season, used to run a real FPL team every gameweek as its 
 
 ## Status
 
-**Phase 1 — Foundation** (in progress)
+**Phase 1 — Foundation** (complete)
 
 - [x] Database schema (`sql/schema.sql`)
 - [x] Data dictionary (`data/data_dictionary.md`)
-- [ ] FPL API ingestion client
-- [ ] First full data pull into local Postgres
+- [x] FPL API ingestion client (`src/ingestion/`)
+- [x] First full data pull into local Postgres (2026/27 season, GW1)
+
+**Phase 2 — Analytics** (next up)
 
 See `data/data_dictionary.md` for exact field-level mapping from the FPL API to this schema,
 including two verified gotchas worth reading before touching the data:
