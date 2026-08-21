@@ -169,3 +169,37 @@ FROM perspectives p
 LEFT JOIN v_team_latest_form opp ON opp.season = p.season AND opp.team_code = p.opponent_code
 LEFT JOIN v_team_latest_form own ON own.season = p.season AND own.team_code = p.team_code
 LEFT JOIN league_norms ln ON ln.season = p.season;
+
+-- =====================================================================================
+-- 5. Ownership / transfer trend
+--    cost_change_event and cost_change_start are FPL's own running totals (since GW1 /
+--    since this GW started), so these are meaningful from day one, unlike the rolling
+--    form views above. Day-over-day deltas (v_price_trend) need multiple snapshot_dates
+--    to say anything, and correctly show NULL on a player's first observed day.
+-- =====================================================================================
+CREATE OR REPLACE VIEW v_latest_price_snapshot AS
+SELECT DISTINCT ON (season, player_code)
+    season, player_code, snapshot_date, now_cost, cost_change_event, cost_change_start,
+    selected_by_percent, transfers_in_event, transfers_out_event, status,
+    chance_of_playing_next_round, news
+FROM player_price_snapshots
+ORDER BY season, player_code, snapshot_date DESC;
+
+CREATE OR REPLACE VIEW v_price_trend AS
+SELECT
+    season, player_code, snapshot_date, now_cost, selected_by_percent,
+    now_cost - LAG(now_cost) OVER w AS price_change_1d,
+    selected_by_percent - LAG(selected_by_percent) OVER w AS ownership_change_1d
+FROM player_price_snapshots
+WINDOW w AS (PARTITION BY season, player_code ORDER BY snapshot_date);
+
+CREATE OR REPLACE VIEW v_ownership_movers AS
+SELECT
+    p.web_name, ps.element_type, ps.team_code,
+    lp.now_cost, lp.selected_by_percent, lp.cost_change_event, lp.cost_change_start,
+    lp.transfers_in_event, lp.transfers_out_event,
+    (lp.transfers_in_event - lp.transfers_out_event) AS net_transfers_event,
+    lp.status, lp.chance_of_playing_next_round, lp.news
+FROM v_latest_price_snapshot lp
+JOIN players p ON p.player_code = lp.player_code
+JOIN player_seasons ps ON ps.player_code = lp.player_code AND ps.season = lp.season;

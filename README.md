@@ -17,20 +17,26 @@ Built for the 2026/27 season, used to run a real FPL team every gameweek as its 
 - [x] FPL API ingestion client (`src/ingestion/`)
 - [x] First full data pull into local Postgres (2026/27 season, GW1)
 
-**Phase 2 — Analytics** (in progress)
+**Phase 2 — Analytics** (complete)
 
 - [x] Player season-to-date totals + efficiency ratios (`sql/analytics.sql`, `v_player_season_totals`)
 - [x] Player rolling/weighted form (`v_player_rolling_form`, `v_player_weighted_form`)
 - [x] Team form + Fixture Difficulty Score v1 (`v_team_form`, `v_fixture_difficulty`)
-- [ ] Ownership/transfer trend views
-- [ ] Notebook-based exploration of the above against real data
+- [x] Ownership/transfer trend views (`v_latest_price_snapshot`, `v_price_trend`, `v_ownership_movers`)
+- [x] Notebook exploring all of the above against real data (`notebooks/02_player_analysis.ipynb`)
 
 See `data/data_dictionary.md` for exact field-level mapping from the FPL API to this schema,
-including two verified gotchas worth reading before touching the data:
+including three verified gotchas worth reading before touching the data:
 1. FPL's `id` fields are season-scoped and get reused next season — this schema keys on the
    season-stable `code` field instead.
 2. `defensive_contribution` is a raw action count, not points — the position-dependent
    threshold (10 for DEF, 12 for MID/FWD) isn't in the API and must be applied downstream.
+3. `fixtures.finished` lags the actual final whistle by 1+ days (waits for official bonus/stat
+   confirmation) — `fixtures.finished_provisional` is what actually flips true at full-time.
+
+To re-run the notebook after a fresh ingestion: the venv has a registered Jupyter kernel
+(`fergies-regression`) — open `notebooks/02_player_analysis.ipynb` in VS Code or Jupyter and
+select that kernel, or re-execute headlessly with `nbclient`.
 
 ## Build phases
 
