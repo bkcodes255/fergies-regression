@@ -14,7 +14,8 @@ venv/
 
 # Env / secrets
 .env
-.env.*
+.env.local
+!.env.example
 
 # Notebooks checkpoints
 .ipynb_checkpoints/
