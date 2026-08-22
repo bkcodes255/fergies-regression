@@ -15,6 +15,7 @@ import psycopg2
 import streamlit as st
 
 from config import settings
+from src.recommendations.squad_builder import build_optimal_squad
 from src.recommendations.squad_optimizer import best_starting_xi
 from src.recommendations.transfers import compute_free_transfers, suggest_transfer_plan
 
@@ -117,6 +118,14 @@ def load_squad(season: str, entry_id: int) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 @st.cache_data(ttl=300)
+def solve_optimal_squad(season: str, budget: float):
+    """Cached on (season, budget) so an unrelated widget interaction elsewhere on the page
+    doesn't re-run the ~1s solver - Streamlit re-executes the whole script on every interaction."""
+    rankings_df = load_player_rankings(season)
+    return build_optimal_squad(rankings_df, budget)
+
+
+@st.cache_data(ttl=300)
 def load_last_ingested_gw(season: str) -> int | None:
     conn = get_connection()
     row = pd.read_sql_query(
@@ -146,7 +155,7 @@ if last_gw is not None and last_gw <= 2:
         "expected behavior, not a bug."
     )
 
-tab_names = ["Player Rankings", "Fixture Planner", "Transfer Targets"]
+tab_names = ["Player Rankings", "Fixture Planner", "Transfer Targets", "Optimal Squad"]
 if settings.ENTRY_ID:
     tab_names.insert(0, "My Squad")
 tabs = st.tabs(tab_names)
@@ -154,6 +163,7 @@ tab_lookup = dict(zip(tab_names, tabs))
 tab_rankings = tab_lookup["Player Rankings"]
 tab_fixtures = tab_lookup["Fixture Planner"]
 tab_targets = tab_lookup["Transfer Targets"]
+tab_optimal = tab_lookup["Optimal Squad"]
 
 if settings.ENTRY_ID:
     with tab_lookup["My Squad"]:
@@ -314,6 +324,50 @@ with tab_targets:
         }),
         use_container_width=True, height=500,
     )
+
+with tab_optimal:
+    st.subheader("Optimal squad from scratch")
+    st.caption(
+        "A real integer program (PuLP/CBC), not a heuristic: picks the 15-player squad "
+        "(exactly 2 GKP / 5 DEF / 5 MID / 3 FWD, max 3 per real team) that maximizes what its "
+        "*starting XI* can actually score — squad and starting-XI selection are solved "
+        "together, with the captain's double points included in the objective. Budget is a "
+        "ceiling the solver has no reason to exhaust: bench players score nothing in the "
+        "objective, so it only spends beyond the cheapest legal bench if doing so improves a "
+        "starter."
+    )
+    budget = st.number_input("Budget (£m)", min_value=80.0, max_value=100.0, value=100.0, step=0.5)
+    opt_squad, opt_xi, opt_captain, opt_objective = solve_optimal_squad(season, budget)
+
+    if opt_squad is None:
+        st.error("No feasible squad found at this budget — try raising it.")
+    else:
+        st.metric("Projected starting XI points (incl. captain double)", round(opt_objective, 2))
+        display_squad = opt_squad.copy()
+        display_squad["role"] = display_squad.apply(
+            lambda r: "C" if r["captain"] else ("Start" if r["starting"] else "Bench"), axis=1
+        )
+        st.dataframe(
+            display_squad.sort_values(["position", "starting"], ascending=[True, False])[
+                ["web_name", "position", "team", "price", "predicted_points", "role"]
+            ].rename(columns={
+                "web_name": "Player", "position": "Pos", "team": "Team",
+                "price": "Price (£m)", "predicted_points": "Predicted (next GW)", "role": "Role",
+            }),
+            use_container_width=True, hide_index=True, height=560,
+        )
+        st.caption(f"Total spend: £{opt_squad['price'].sum():.1f}m of £{budget:.1f}m budget")
+
+        if settings.ENTRY_ID:
+            actual_squad, _ = load_squad(season, settings.ENTRY_ID)
+            actual_xi, _ = best_starting_xi(actual_squad)
+            actual_total = actual_xi["predicted_points"].sum()
+            st.info(
+                f"For context (not apples-to-apples — this doesn't account for the cost of "
+                f"actually making these transfers): your current starting XI projects to "
+                f"**{actual_total:.2f}** points (uncaptained); this from-scratch squad at the "
+                f"same £{budget:.1f}m budget projects to **{opt_objective:.2f}** (captained)."
+            )
 
 st.divider()
 st.caption(

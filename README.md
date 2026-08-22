@@ -96,6 +96,12 @@ Run the dashboard: `streamlit run dashboard/app.py`
       formation, top-N predicted points per position is trivially optimal)
 - [x] Captain check (built in Phase 3, still here) — flags when the model's top predicted
       scorer in your XI differs from your actual captain
+- [x] Full squad-rebuild optimizer (`src/recommendations/squad_builder.py`) — a real integer
+      program (PuLP/CBC), not a heuristic: picks the 15-player squad (exactly 2 GKP/5 DEF/5
+      MID/3 FWD, max 3 per team, within budget) that maximizes what its *starting XI* can
+      actually score. Squad and starting-XI selection are solved together in one MILP —
+      captain doubling is in the objective too — rather than picking 15 players and hoping a
+      good XI happens to fit inside them. Solves in under a second against the full player pool.
 
 **Known limitations, still true**: everything above is single-gameweek — our `predictions`
 table only has next-gameweek projections, so there's no multi-week transfer planning (the
@@ -103,9 +109,9 @@ plan's "5-GW transfer horizon") yet. The transfer plan is greedy (picks the best
 transfer at each step), not a global search over combinations — an early pick can block a
 better later combination, so it's not guaranteed globally optimal, just internally consistent
 (unlike the old independent-suggestions approach, which could recommend the same buy target
-multiple times). A full squad rebuild from the entire player pool under budget (real integer
-programming, per the plan's "Transfer Optimization" section) is not built — what exists only
-optimizes within your *existing* 15.
+multiple times). The squad-rebuild optimizer is genuinely optimal for its stated objective, but
+builds from scratch — it doesn't account for the cost/hits of actually transferring from your
+current squad into it; that's still the transfer plan's job.
 
 ## Build phases
 
