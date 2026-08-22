@@ -169,8 +169,28 @@ projection.
       already what's shipped in `models/total_points_direct_random_forest.joblib`; this just
       strengthens the evidence the choice was right.
 
-      Phase 6 is now complete: decision-engine backtesting and model cross-validation both
-      done, on top of Phase 4's original no-leakage holdout backtest.
+- [x] Feature importance + error analysis (`src/models/error_analysis.py`,
+      `notebooks/09_error_analysis.ipynb`) — a diagnostic pass on the deployed model, not just
+      its headline R². Feature importance: `minutes_roll3` alone is ~62% of total importance,
+      plus `ict_index_roll3`/`ict_index_roll5` (~18%) — three features explain ~80% of the
+      model's decisions, meaning it's mostly answering "will this player play" rather than "how
+      well will they play." **The real finding**: bucketing the held-out season by actual
+      outcome shows the model's average prediction barely moves past ~3 points regardless of
+      how big the real result was — for an actual 11+-point haul, mean predicted is 3.08 (less
+      than a quarter of what happened). This is textbook regression-to-the-mean for an
+      MSE-trained model on a right-skewed target: minimizing squared error rewards hedging
+      toward a safe low prediction over confidently guessing big and sometimes being wrong. It's
+      correct under the training objective, but it's specifically the failure mode that matters
+      most for captaincy (doubling a haul is how a gameweek is won) and differential transfers —
+      areas the decision-engine backtest (Phase 6) already flagged the transfer plan, not weekly
+      captain judgment, as the dominant value driver. Two directions worth considering before
+      Phase 7, not yet built: predicting a distribution/haul-probability instead of a point
+      estimate, or a haul-specific feature set (shot volume trend, set-piece role, opponent
+      defensive weakness) instead of general-form features.
+
+      Phase 6 is now complete: decision-engine backtesting, model cross-validation, and a
+      feature-importance/error-analysis pass, on top of Phase 4's original no-leakage holdout
+      backtest.
 
       **Known simplifications**, documented in `src/validation/backtest.py`'s module
       docstring: no historical injury/availability data survives in the archive (every player
