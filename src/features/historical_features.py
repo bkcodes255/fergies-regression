@@ -36,10 +36,23 @@ DC_SUM_COLS = ["clearances_blocks_interceptions", "defensive_contribution", "rec
 FIRST_COLS = ["name", "position", "value", "selected"]
 
 
+def _load_code_mapping(season_dir: Path) -> dict:
+    """element id (season-local, resets every season) -> code (stable across seasons),
+    from that season's players_raw.csv. Same season-scoped-id gotcha as the live FPL API
+    (data/data_dictionary.md) - vaastav's archive has the identical issue and the identical
+    fix (a stable `code` field)."""
+    path = season_dir / "players_raw.csv"
+    if not path.exists():
+        return {}
+    raw = pd.read_csv(path, usecols=["id", "code"])
+    return dict(zip(raw["id"], raw["code"]))
+
+
 def _load_season(season_dir: Path) -> pd.DataFrame:
     season = season_dir.name
     df = pd.read_csv(season_dir / "merged_gw.csv")
     df["season"] = season
+    df["code"] = df["element"].map(_load_code_mapping(season_dir))
 
     has_dc = season in SEASONS_WITH_DC
     for col in DC_SUM_COLS:
@@ -47,11 +60,44 @@ def _load_season(season_dir: Path) -> pd.DataFrame:
             df[col] = np.nan
 
     agg = {col: "sum" for col in SUM_COLS + DC_SUM_COLS}
-    agg.update({col: "first" for col in FIRST_COLS})
+    agg.update({col: "first" for col in FIRST_COLS + ["code"]})
 
     grouped = df.groupby(["season", "element", "GW"], as_index=False).agg(agg)
     grouped["dc_data_available"] = int(has_dc)
     return grouped
+
+
+def _prior_season_str(season: str) -> str:
+    start_year = int(season.split("-")[0])
+    return f"{start_year - 1}-{str(start_year % 100).zfill(2)}"
+
+
+def _prior_season_summary(season: str) -> pd.DataFrame:
+    """Each returning player's FULL prior-season performance (by stable `code`), used as a
+    'how did they do last year' prior - without this, a proven veteran and a total unknown
+    look identical for however many gameweeks it takes the current season's own rolling
+    history to build up. Matched by code so this works whether `season` is a historical
+    training season or 2026/27 live data (same function, same join key, on purpose)."""
+    empty = pd.DataFrame({
+        "code": pd.Series(dtype="int64"),
+        "prev_season_points_per90": pd.Series(dtype="float64"),
+        "prev_season_minutes_avg": pd.Series(dtype="float64"),
+        "prev_season_total_points": pd.Series(dtype="float64"),
+    })
+    prior_dir = HISTORICAL_DIR / _prior_season_str(season)
+    if not prior_dir.exists() or not (prior_dir / "merged_gw.csv").exists():
+        return empty
+
+    prior = _load_season(prior_dir)
+    summary = prior.groupby("code").agg(
+        total_points=("total_points", "sum"), total_minutes=("minutes", "sum"), gameweeks=("GW", "nunique"),
+    ).reset_index()
+    summary["prev_season_points_per90"] = np.where(
+        summary["total_minutes"] > 0, summary["total_points"] / summary["total_minutes"] * 90, 0.0
+    )
+    summary["prev_season_minutes_avg"] = summary["total_minutes"] / summary["gameweeks"].clip(lower=1)
+    summary = summary.rename(columns={"total_points": "prev_season_total_points"})
+    return summary[["code", "prev_season_points_per90", "prev_season_minutes_avg", "prev_season_total_points"]]
 
 
 def load_all_seasons() -> pd.DataFrame:
@@ -118,6 +164,20 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
         result.loc[result["dc_data_available"] == 0, col] = 0.0
         result[col] = result[col].fillna(0.0)
 
+    prior_frames = []
+    for season in result["season"].unique():
+        summary = _prior_season_summary(season)
+        summary = summary.copy()
+        summary["season"] = season
+        prior_frames.append(summary)
+    prior_all = pd.concat(prior_frames, ignore_index=True) if prior_frames else pd.DataFrame(
+        columns=["code", "season", "prev_season_points_per90", "prev_season_minutes_avg", "prev_season_total_points"]
+    )
+    result = result.merge(prior_all, on=["season", "code"], how="left")
+    result["had_prior_season"] = result["prev_season_points_per90"].notna().astype(int)
+    for col in ["prev_season_points_per90", "prev_season_minutes_avg", "prev_season_total_points"]:
+        result[col] = result[col].fillna(0.0).astype(float)
+
     result["target_points_per90"] = np.where(
         result["minutes"] > 0, result["total_points"] / result["minutes"] * 90, np.nan
     )
@@ -133,6 +193,7 @@ FEATURE_COLS = [
     # model is later applied to 2026/27 data. Price and rolling performance are scale-stable.
     "price", "dc_data_available",
     "season_points_per90_avg", "season_minutes_avg",
+    "had_prior_season", "prev_season_points_per90", "prev_season_minutes_avg", "prev_season_total_points",
 ] + [f"{stat}_roll{w}" for w in ROLLING_WINDOWS for stat in (
     "points_per90", "goals_per90", "assists_per90", "xg_per90", "xa_per90",
     "xgc_per90", "minutes", "bps", "ict_index", "dc", "starts_rate",

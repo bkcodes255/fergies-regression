@@ -1,17 +1,21 @@
 """Phase 4: train and compare expected-points models on historical FPL data.
 
-Two targets, trained and evaluated separately, then combined:
-  - minutes:        how long will this player play next gameweek?
-  - points_per_90:  how productive are they per 90 minutes, when they do play?
-  - combined: expected_points = points_per_90_pred * (minutes_pred / 90)
+Three targets, trained and evaluated separately:
+  - minutes:             how long will this player play next gameweek?
+  - points_per_90:        how productive are they per 90 minutes, when they do play?
+  - total_points_direct:  total points next gameweek, predicted directly
 
-This decomposition (rather than predicting total points directly) is deliberate - a player's
-per-90 productivity and their rotation risk are different questions with different signal,
-and collapsing them into one target hides exactly the cases (new signings, injury returns,
-rotation-prone squad players) where getting the split right matters most.
+The original design combined the first two (expected_points = points_per_90_pred *
+minutes_pred / 90) on the theory that "how good when playing" and "will they play" are
+different questions. Backtesting showed the direct model wins instead (R2=0.317 vs 0.117) -
+~61% of rows are unused/fringe players with exactly 0 minutes, and two separately-noisy
+nonzero-biased predictions multiply into nonzero more often than a direct model learns "this
+profile -> 0" cleanly. See notebooks/06_model_comparison.ipynb. total_points_direct is the
+recommended predictor; the other two are kept for their own value (minutes for rotation-risk
+flagging) not as multiplicative inputs.
 
-Split: train on 2023-24 + 2024-25, test on the entire 2025-26 season - a season the models
-never see during training, so this is a genuine backtest, not an in-sample fit.
+Split: train on 2022-23 + 2023-24 + 2024-25, test on the entire 2025-26 season - a season the
+models never see during training, so this is a genuine backtest, not an in-sample fit.
 
 Run directly:
     python -m src.models.train
@@ -32,7 +36,7 @@ from xgboost import XGBRegressor
 from src.features.historical_features import FEATURE_COLS, build_training_frame
 from src.ingestion.db import get_connection
 
-TRAIN_SEASONS = ["2023-24", "2024-25"]
+TRAIN_SEASONS = ["2022-23", "2023-24", "2024-25"]
 TEST_SEASON = "2025-26"
 MODELS_DIR = Path(__file__).resolve().parent.parent.parent / "models"
 

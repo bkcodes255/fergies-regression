@@ -46,6 +46,10 @@ def load_live_gameweeks(conn, season: str) -> pd.DataFrame:
     df = pd.read_sql_query(LIVE_QUERY, conn, params={"season": season})
     df["position"] = df["element_type"].map(ELEMENT_TYPE_TO_TRAINED_POSITION)
     df["dc_data_available"] = 1  # 2026/27 has the DC stat; live pipeline always sets this
+    # our own player_code IS the stable cross-season identity already (that's the whole point
+    # of keying the schema on it) - engineer_features()'s prior-season lookup expects a `code`
+    # column by that same name, shared with the historical CSV path where element != code.
+    df["code"] = df["element"]
     for col in DC_SUM_COLS:
         if col not in df.columns:
             df[col] = 0.0
