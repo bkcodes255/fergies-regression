@@ -15,6 +15,8 @@ import psycopg2
 import streamlit as st
 
 from config import settings
+from src.recommendations.squad_optimizer import best_starting_xi
+from src.recommendations.transfers import suggest_transfers
 
 st.set_page_config(page_title="Fergie's Regression", layout="wide")
 
@@ -30,7 +32,7 @@ def load_player_rankings(season: str) -> pd.DataFrame:
     df = pd.read_sql_query(
         """
         SELECT
-            p.web_name, pos.element_type, t.short_name AS team,
+            st.player_code, p.web_name, pos.element_type, t.short_name AS team,
             st.now_cost, st.total_points, st.games_played, st.points_per_90,
             st.points_per_million, st.selected_by_percent, st.status,
             pr.predicted_points, pr.event_id AS predicted_gw
@@ -84,7 +86,7 @@ def load_squad(season: str, entry_id: int) -> tuple[pd.DataFrame, pd.DataFrame]:
     squad = pd.read_sql_query(
         """
         SELECT
-            sp.squad_position, sp.multiplier, sp.is_captain, sp.is_vice_captain,
+            sp.player_code, sp.squad_position, sp.multiplier, sp.is_captain, sp.is_vice_captain,
             p.web_name, pos.element_type, t.short_name AS team, lp.now_cost,
             pr.predicted_points
         FROM squad_picks sp
@@ -200,6 +202,56 @@ if settings.ENTRY_ID:
             st.dataframe(_format_squad(starting), use_container_width=True, hide_index=True)
             st.markdown("**Bench**")
             st.dataframe(_format_squad(bench), use_container_width=True, hide_index=True)
+
+            st.divider()
+            st.subheader("Recommended starting XI (auto-substitution)")
+            st.caption(
+                "Best valid formation from your actual 15, maximizing predicted points. "
+                "Brute-forces all 8 legal FPL formations (GKP fixed at 1; DEF 3-5, MID 2-5, "
+                "FWD 1-3, 11 total) — within a fixed formation the top-N players per position "
+                "is always optimal, so this is exact, not a heuristic."
+            )
+            optimal_xi, formation = best_starting_xi(squad)
+            optimal_total = optimal_xi["predicted_points"].sum()
+            actual_total = starting["predicted_points"].sum()  # unweighted, for apples-to-apples vs optimal_total
+            if formation is None:
+                st.warning("Could not find a valid formation from this squad.")
+            else:
+                d, m, f = formation
+                st.metric(
+                    f"Optimal formation: 1-{d}-{m}-{f}",
+                    round(optimal_total, 2),
+                    delta=round(optimal_total - actual_total, 2) if abs(optimal_total - actual_total) > 0.01 else None,
+                    help="Delta vs. your actual starting XI's (unweighted) predicted total.",
+                )
+                st.dataframe(
+                    optimal_xi[["web_name", "position", "predicted_points"]].rename(columns={
+                        "web_name": "Player", "position": "Pos", "predicted_points": "Predicted (next GW)",
+                    }),
+                    use_container_width=True, hide_index=True,
+                )
+
+            st.divider()
+            st.subheader("Transfer suggestions")
+            st.caption(
+                "Same position, affordable with your current price + bank, respects the max-3-per-team "
+                "rule. Each row is an independent 1-for-1 comparison — not a coordinated multi-transfer "
+                "plan, so don't read two rows recommending the same buy as 'buy them twice'. Doesn't "
+                "account for a transfer hit (-4) if you're out of free transfers."
+            )
+            bank = float(gw_row["bank"]) / 10 if gw_row is not None else 0.0
+            suggestions = suggest_transfers(squad, rankings, bank, top_n=2)
+            if suggestions.empty:
+                st.info("No positive-gain transfer suggestions found within budget.")
+            else:
+                st.dataframe(
+                    suggestions.rename(columns={
+                        "sell": "Sell", "sell_position": "Pos", "sell_predicted": "Sell predicted",
+                        "sell_price": "Sell price", "buy": "Buy", "buy_predicted": "Buy predicted",
+                        "buy_price": "Buy price", "net_gain": "Net gain",
+                    }),
+                    use_container_width=True, hide_index=True,
+                )
 
 with tab_rankings:
     st.subheader("Player rankings")

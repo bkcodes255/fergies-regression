@@ -82,6 +82,25 @@ python -m src.models.predict_live
 
 Run the dashboard: `streamlit run dashboard/app.py`
 
+**Phase 5 — Decision engine** (partially complete — single-gameweek horizon only, see below)
+
+- [x] Transfer suggestions (`src/recommendations/transfers.py`) — best available same-position
+      replacement per squad player, respects budget (price + bank) and the max-3-per-team rule
+- [x] Starting XI auto-substitution (`src/recommendations/squad_optimizer.py`) — brute-forces
+      all 8 legal FPL formations against your actual 15, exact not heuristic (within a fixed
+      formation, top-N predicted points per position is trivially optimal)
+- [x] Captain check (built in Phase 3, still here) — flags when the model's top predicted
+      scorer in your XI differs from your actual captain
+
+**Known limitations, by design for now**: everything above is single-gameweek — our
+`predictions` table only has next-gameweek projections, so there's no multi-week transfer
+planning (the plan's "5-GW transfer horizon") yet. Transfer suggestions are independent 1-for-1
+comparisons, not a coordinated multi-transfer plan — two rows recommending the same buy target
+means "either of these is a good swap," not "buy them twice." No transfer-hit (-4) cost
+modeling. A full squad rebuild from the entire player pool under budget (real integer
+programming, per the plan's "Transfer Optimization" section) is not built — what exists only
+optimizes within your *existing* 15.
+
 ## Build phases
 
 1. **Foundation** — FPL API client, raw snapshots, Postgres schema, manual ingestion
