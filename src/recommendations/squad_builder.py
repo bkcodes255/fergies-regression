@@ -20,17 +20,21 @@ STARTING_XI_RANGE = {"GKP": (1, 1), "DEF": (3, 5), "MID": (2, 5), "FWD": (1, 3)}
 # 2026/27 API (same source squad_optimizer.py uses for the 8-formation brute force)
 
 
-def build_optimal_squad(rankings: pd.DataFrame, budget: float, solver_time_limit: int = 30):
+def build_optimal_squad(rankings: pd.DataFrame, budget: float, solver_time_limit: int = 30,
+                         value_col: str = "predicted_points"):
     """
     rankings: full player pool - player_code, web_name, position, team, price,
-              predicted_points, status ('a' = available)
+              value_col, status ('a' = available)
     budget: total spend allowed, in £m
+    value_col: "predicted_points" (next-GW, default) or "horizon_points"
+        (src.recommendations.horizon) to build the squad that projects best over a multi-week
+        window instead of just the next gameweek.
 
     Returns (squad_df, starting_xi_df, captain_row, objective_value) or (None, None, None, None)
     if no feasible solution exists (e.g. budget too low to field a legal squad at all).
     """
     pool = rankings[rankings["status"] == "a"].reset_index(drop=True)
-    pool = pool[pool["predicted_points"].notna()]
+    pool = pool[pool[value_col].notna()]
     idx = pool.index.tolist()
 
     prob = pulp.LpProblem("fpl_squad_optimizer", pulp.LpMaximize)
@@ -38,7 +42,7 @@ def build_optimal_squad(rankings: pd.DataFrame, budget: float, solver_time_limit
     start = pulp.LpVariable.dicts("start", idx, cat="Binary")
     captain = pulp.LpVariable.dicts("captain", idx, cat="Binary")
 
-    points = pool["predicted_points"].to_dict()
+    points = pool[value_col].to_dict()
     prob += pulp.lpSum(points[i] * start[i] for i in idx) + pulp.lpSum(points[i] * captain[i] for i in idx)
 
     # squad composition: exactly 2 GKP / 5 DEF / 5 MID / 3 FWD (15 total)

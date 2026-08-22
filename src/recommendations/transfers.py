@@ -1,9 +1,11 @@
 """Transfer suggestions: for each squad player, find the best available replacement.
 
-Deliberately simple (single-gameweek horizon, no multi-week planning) - our predictions table
-only has next-gameweek projections right now, since the model's rolling features would need
-real intervening gameweeks to project further out honestly. Multi-gameweek transfer planning
-(the plan's "5-GW transfer horizon" section) needs iterated prediction, not built yet.
+All comparisons are keyed off a `value_col` parameter (defaults to "predicted_points", the
+single next-GW prediction) rather than hardcoding it, so the same greedy logic works for
+multi-week planning too - pass value_col="horizon_points" (src.recommendations.horizon) to
+compare players on a fixture-difficulty-adjusted sum over the next N gameweeks instead of just
+the next one. hit/net-gain math (TRANSFER_HIT_COST) is unaffected either way: a transfer's hit
+is paid once regardless of the horizon used to justify it.
 """
 from __future__ import annotations
 
@@ -30,11 +32,16 @@ def compute_free_transfers(manager_gameweeks: pd.DataFrame, cap: int = FREE_TRAN
     return free_transfers
 
 
-def suggest_transfers(squad: pd.DataFrame, rankings: pd.DataFrame, bank: float, top_n: int = 3) -> pd.DataFrame:
+def suggest_transfers(
+    squad: pd.DataFrame, rankings: pd.DataFrame, bank: float, top_n: int = 3,
+    value_col: str = "predicted_points",
+) -> pd.DataFrame:
     """
-    squad: one row per owned player - player_code, web_name, position, team, price, predicted_points
+    squad: one row per owned player - player_code, web_name, position, team, price, value_col
     rankings: full player pool with the same columns, plus status ('a' = available)
     bank: money in the bank, in £m (budget available beyond selling the player being replaced)
+    value_col: column both frames rank players on - "predicted_points" (next-GW) by default,
+        or "horizon_points" (src.recommendations.horizon) for a multi-week comparison.
 
     Returns one row per (squad player, candidate replacement) with a positive net gain,
     top `top_n` candidates per squad player, sorted by net gain descending.
@@ -57,14 +64,14 @@ def suggest_transfers(squad: pd.DataFrame, rankings: pd.DataFrame, bank: float, 
             return count_if_bought <= MAX_PER_TEAM
 
         same_position = same_position[same_position.apply(team_ok, axis=1)]
-        same_position["net_gain"] = same_position["predicted_points"] - current["predicted_points"]
+        same_position["net_gain"] = same_position[value_col] - current[value_col]
         candidates = same_position[same_position["net_gain"] > 0].sort_values("net_gain", ascending=False).head(top_n)
 
         for _, cand in candidates.iterrows():
             suggestions.append({
                 "sell": current["web_name"], "sell_position": current["position"],
-                "sell_predicted": current["predicted_points"], "sell_price": current["price"],
-                "buy": cand["web_name"], "buy_predicted": cand["predicted_points"],
+                "sell_predicted": current[value_col], "sell_price": current["price"],
+                "buy": cand["web_name"], "buy_predicted": cand[value_col],
                 "buy_price": cand["price"], "net_gain": round(cand["net_gain"], 3),
                 "net_gain_if_hit": round(cand["net_gain"] - TRANSFER_HIT_COST, 3),
             })
@@ -78,7 +85,7 @@ def suggest_transfers(squad: pd.DataFrame, rankings: pd.DataFrame, bank: float, 
 
 
 def _best_single_transfer(squad: pd.DataFrame, rankings: pd.DataFrame, bank: float,
-                            team_counts: dict, excluded_buys: set):
+                            team_counts: dict, excluded_buys: set, value_col: str):
     """One step of the greedy planner: the single best (sell, buy) pair across the whole
     squad, not just one player - used by suggest_transfer_plan to pick one transfer at a time."""
     owned_codes = set(squad["player_code"]) | excluded_buys
@@ -95,7 +102,7 @@ def _best_single_transfer(squad: pd.DataFrame, rankings: pd.DataFrame, bank: flo
             count_if_bought = team_counts.get(cand["team"], 0) + (0 if cand["team"] == current["team"] else 1)
             if count_if_bought > MAX_PER_TEAM:
                 continue
-            gain = cand["predicted_points"] - current["predicted_points"]
+            gain = cand[value_col] - current[value_col]
             if best is None or gain > best["gain"]:
                 best = {"sell_row": current, "buy_row": cand, "gain": gain}
     return best
@@ -103,6 +110,7 @@ def _best_single_transfer(squad: pd.DataFrame, rankings: pd.DataFrame, bank: flo
 
 def suggest_transfer_plan(
     squad: pd.DataFrame, rankings: pd.DataFrame, bank: float, free_transfers: int, max_transfers: int = 5,
+    value_col: str = "predicted_points",
 ) -> tuple[pd.DataFrame, float]:
     """Greedily builds a COORDINATED multi-transfer plan, unlike suggest_transfers() (whose
     rows are independent 1-for-1 comparisons that can recommend the same buy target more than
@@ -111,6 +119,10 @@ def suggest_transfer_plan(
     Greedy, not globally optimal (a true optimum would need to search combinations, since an
     early greedy pick can block a better later combination) - but it's a real, honest
     coordinated plan rather than a set of suggestions that quietly conflict with each other.
+
+    value_col: "predicted_points" (next-GW, default) or "horizon_points" - a transfer's gain
+    is judged against whatever horizon that column represents, while the hit cost is still a
+    flat one-time -4 either way.
 
     Stops when no remaining transfer has positive net gain after its hit cost, or
     `max_transfers` is reached. Transfers beyond `free_transfers` are charged TRANSFER_HIT_COST.
@@ -124,7 +136,7 @@ def suggest_transfer_plan(
     plan = []
 
     for i in range(max_transfers):
-        best = _best_single_transfer(working_squad, rankings, working_bank, team_counts, excluded_buys)
+        best = _best_single_transfer(working_squad, rankings, working_bank, team_counts, excluded_buys, value_col)
         if best is None:
             break
         hit = 0 if (i + 1) <= free_transfers else TRANSFER_HIT_COST

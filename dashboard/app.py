@@ -15,6 +15,7 @@ import psycopg2
 import streamlit as st
 
 from config import settings
+from src.recommendations.horizon import DEFAULT_HORIZON, compute_horizon_points, load_fixture_window
 from src.recommendations.squad_builder import build_optimal_squad
 from src.recommendations.squad_optimizer import best_starting_xi
 from src.recommendations.transfers import compute_free_transfers, suggest_transfer_plan
@@ -73,6 +74,27 @@ def load_fixture_difficulty(season: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
+def load_horizon_fixtures(season: str, start_gw: int, horizon: int = DEFAULT_HORIZON) -> pd.DataFrame:
+    conn = get_connection()
+    return load_fixture_window(conn, season, start_gw, horizon)
+
+
+def with_horizon(rankings_df: pd.DataFrame, season: str) -> pd.DataFrame:
+    """Adds horizon_points/horizon_fixtures (see src.recommendations.horizon) to any
+    player-keyed frame that already has predicted_points + predicted_gw. Falls back to
+    treating the horizon as 1 flat gameweek when there's no next-GW prediction yet to anchor
+    the window on (e.g. before the first `predict_live` run)."""
+    predicted_gw = rankings_df["predicted_gw"].dropna().max() if not rankings_df.empty else None
+    if predicted_gw is None or pd.isna(predicted_gw):
+        result = rankings_df.copy()
+        result["horizon_points"] = result["predicted_points"]
+        result["horizon_fixtures"] = 1
+        return result
+    fixtures = load_horizon_fixtures(season, int(predicted_gw), DEFAULT_HORIZON)
+    return compute_horizon_points(rankings_df, fixtures, DEFAULT_HORIZON)
+
+
+@st.cache_data(ttl=300)
 def load_squad(season: str, entry_id: int) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Returns (squad_df, manager_gw_df). manager_gw_df has ALL ingested gameweeks for this
     entry (needed for compute_free_transfers, which needs the whole event_transfers history,
@@ -118,11 +140,15 @@ def load_squad(season: str, entry_id: int) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 @st.cache_data(ttl=300)
-def solve_optimal_squad(season: str, budget: float):
-    """Cached on (season, budget) so an unrelated widget interaction elsewhere on the page
-    doesn't re-run the ~1s solver - Streamlit re-executes the whole script on every interaction."""
+def solve_optimal_squad(season: str, budget: float, value_col: str = "predicted_points"):
+    """Cached on (season, budget, value_col) so an unrelated widget interaction elsewhere on
+    the page doesn't re-run the ~1s solver - Streamlit re-executes the whole script on every
+    interaction. value_col="horizon_points" builds for the multi-week window instead of just
+    the next gameweek (src.recommendations.horizon)."""
     rankings_df = load_player_rankings(season)
-    return build_optimal_squad(rankings_df, budget)
+    if value_col == "horizon_points":
+        rankings_df = with_horizon(rankings_df, season)
+    return build_optimal_squad(rankings_df, budget, value_col=value_col)
 
 
 @st.cache_data(ttl=300)
@@ -142,6 +168,7 @@ st.caption("An FPL Analytics Report")
 last_gw = load_last_ingested_gw(season)
 rankings = load_player_rankings(season)
 predicted_gw = rankings["predicted_gw"].dropna().max() if not rankings.empty else None
+rankings = with_horizon(rankings, season)
 
 col1, col2, col3 = st.columns(3)
 col1.metric("Season", season)
@@ -168,6 +195,9 @@ tab_optimal = tab_lookup["Optimal Squad"]
 if settings.ENTRY_ID:
     with tab_lookup["My Squad"]:
         squad, manager_gw = load_squad(season, settings.ENTRY_ID)
+        squad = squad.merge(
+            rankings[["player_code", "horizon_points", "horizon_fixtures"]], on="player_code", how="left"
+        )
         if squad.empty:
             st.warning("No squad data ingested yet. Run `python -m src.ingestion.load_manager` first.")
         else:
@@ -247,15 +277,30 @@ if settings.ENTRY_ID:
             st.subheader("Recommended transfer plan")
             free_transfers = compute_free_transfers(manager_gw)
             bank = float(gw_row["bank"]) / 10 if gw_row is not None else 0.0
+            plan_horizon = st.radio(
+                "Judge transfers by", ["Next GW only", f"Next {DEFAULT_HORIZON} GWs (fixture-weighted)"],
+                horizontal=True, key="plan_horizon",
+            )
+            plan_value_col = "horizon_points" if "GWs" in plan_horizon else "predicted_points"
             st.caption(
                 f"You have **{free_transfers}** free transfer(s) available (computed from your "
                 "transfer history — FPL's 2026/27 rule allows banking up to 5). This is a "
                 "coordinated plan, not independent suggestions: each transfer accounts for the "
                 "ones before it, so you'll never see the same buy target twice. Greedy — picks "
                 "the single best transfer at each step, not a global search over combinations — "
-                "and stops as soon as the next transfer wouldn't survive its hit cost."
+                "and stops as soon as the next transfer wouldn't survive its hit cost. "
+                + (
+                    f"Ranking players on a {DEFAULT_HORIZON}-gameweek fixture-weighted total "
+                    "(same next-GW model prediction, scaled per week by that team's fixture "
+                    "difficulty — see the Fixture Planner tab) rather than just next gameweek, "
+                    "so a good run of fixtures can justify a transfer a single-GW view would miss."
+                    if plan_value_col == "horizon_points" else
+                    "Ranking players on next gameweek's prediction only."
+                )
             )
-            plan, remaining_bank = suggest_transfer_plan(squad, rankings, bank, free_transfers)
+            plan, remaining_bank = suggest_transfer_plan(
+                squad, rankings, bank, free_transfers, value_col=plan_value_col
+            )
             if plan.empty:
                 st.info("No positive-net-gain transfer found — your squad already looks efficient.")
             else:
@@ -306,20 +351,27 @@ with tab_fixtures:
 
 with tab_targets:
     st.subheader("Transfer targets: predicted points per £m")
+    st.caption(
+        f"'Next {DEFAULT_HORIZON} GWs' sums the next-GW prediction across that window, scaled "
+        "week-by-week by the player's team's fixture difficulty (0 for a blank gameweek, "
+        "double-counted for a double gameweek) — see src/recommendations/horizon.py."
+    )
     min_predicted = st.slider("Minimum predicted points", 0.0, 10.0, 1.0, step=0.5, key="targets_min")
     max_ownership = st.slider("Maximum ownership % (differentials)", 0.0, 100.0, 100.0, step=5.0, key="targets_own")
+    sort_horizon = st.checkbox(f"Sort by next {DEFAULT_HORIZON} GWs instead of pts/£m", key="targets_sort_horizon")
 
     targets = rankings[
         (rankings["predicted_points"] >= min_predicted) &
         (rankings["selected_by_percent"] <= max_ownership) &
         (rankings["status"] == "a")
-    ].sort_values("predicted_value", ascending=False)
+    ].sort_values("horizon_points" if sort_horizon else "predicted_value", ascending=False)
 
     st.dataframe(
-        targets[["web_name", "position", "team", "price", "predicted_points",
-                  "predicted_value", "selected_by_percent"]].rename(columns={
+        targets[["web_name", "position", "team", "price", "predicted_points", "horizon_points",
+                  "horizon_fixtures", "predicted_value", "selected_by_percent"]].rename(columns={
             "web_name": "Player", "position": "Pos", "team": "Team", "price": "Price (£m)",
-            "predicted_points": "Predicted (next GW)", "predicted_value": "Predicted pts/£m",
+            "predicted_points": "Predicted (next GW)", "horizon_points": f"Predicted (next {DEFAULT_HORIZON} GWs)",
+            "horizon_fixtures": "Fixtures in window", "predicted_value": "Predicted pts/£m",
             "selected_by_percent": "Owned %",
         }),
         use_container_width=True, height=500,
@@ -337,22 +389,28 @@ with tab_optimal:
         "starter."
     )
     budget = st.number_input("Budget (£m)", min_value=80.0, max_value=100.0, value=100.0, step=0.5)
-    opt_squad, opt_xi, opt_captain, opt_objective = solve_optimal_squad(season, budget)
+    opt_horizon = st.radio(
+        "Optimize for", ["Next GW only", f"Next {DEFAULT_HORIZON} GWs (fixture-weighted)"],
+        horizontal=True, key="opt_horizon",
+    )
+    opt_value_col = "horizon_points" if "GWs" in opt_horizon else "predicted_points"
+    opt_squad, opt_xi, opt_captain, opt_objective = solve_optimal_squad(season, budget, opt_value_col)
+    opt_label = f"Predicted (next {DEFAULT_HORIZON} GWs)" if opt_value_col == "horizon_points" else "Predicted (next GW)"
 
     if opt_squad is None:
         st.error("No feasible squad found at this budget — try raising it.")
     else:
-        st.metric("Projected starting XI points (incl. captain double)", round(opt_objective, 2))
+        st.metric(f"Projected starting XI points (incl. captain double) — {opt_label}", round(opt_objective, 2))
         display_squad = opt_squad.copy()
         display_squad["role"] = display_squad.apply(
             lambda r: "C" if r["captain"] else ("Start" if r["starting"] else "Bench"), axis=1
         )
         st.dataframe(
             display_squad.sort_values(["position", "starting"], ascending=[True, False])[
-                ["web_name", "position", "team", "price", "predicted_points", "role"]
+                ["web_name", "position", "team", "price", opt_value_col, "role"]
             ].rename(columns={
                 "web_name": "Player", "position": "Pos", "team": "Team",
-                "price": "Price (£m)", "predicted_points": "Predicted (next GW)", "role": "Role",
+                "price": "Price (£m)", opt_value_col: opt_label, "role": "Role",
             }),
             use_container_width=True, hide_index=True, height=560,
         )
@@ -360,13 +418,17 @@ with tab_optimal:
 
         if settings.ENTRY_ID:
             actual_squad, _ = load_squad(season, settings.ENTRY_ID)
-            actual_xi, _ = best_starting_xi(actual_squad)
-            actual_total = actual_xi["predicted_points"].sum()
+            actual_squad = actual_squad.merge(
+                rankings[["player_code", "horizon_points", "horizon_fixtures"]], on="player_code", how="left"
+            )
+            actual_xi, _ = best_starting_xi(actual_squad, value_col=opt_value_col)
+            actual_total = actual_xi[opt_value_col].sum()
             st.info(
                 f"For context (not apples-to-apples — this doesn't account for the cost of "
                 f"actually making these transfers): your current starting XI projects to "
-                f"**{actual_total:.2f}** points (uncaptained); this from-scratch squad at the "
-                f"same £{budget:.1f}m budget projects to **{opt_objective:.2f}** (captained)."
+                f"**{actual_total:.2f}** points (uncaptained, {opt_label.lower()}); this "
+                f"from-scratch squad at the same £{budget:.1f}m budget projects to "
+                f"**{opt_objective:.2f}** (captained)."
             )
 
 st.divider()

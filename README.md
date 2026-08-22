@@ -82,7 +82,7 @@ python -m src.models.predict_live
 
 Run the dashboard: `streamlit run dashboard/app.py`
 
-**Phase 5 — Decision engine** (partially complete — single-gameweek horizon only, see below)
+**Phase 5 — Decision engine** (complete)
 
 - [x] Coordinated transfer plan (`src/recommendations/transfers.py`) — greedily builds a
       sequence of transfers (not independent 1-for-1 suggestions), so a 2nd transfer never
@@ -103,15 +103,29 @@ Run the dashboard: `streamlit run dashboard/app.py`
       captain doubling is in the objective too — rather than picking 15 players and hoping a
       good XI happens to fit inside them. Solves in under a second against the full player pool.
 
-**Known limitations, still true**: everything above is single-gameweek — our `predictions`
-table only has next-gameweek projections, so there's no multi-week transfer planning (the
-plan's "5-GW transfer horizon") yet. The transfer plan is greedy (picks the best single
-transfer at each step), not a global search over combinations — an early pick can block a
-better later combination, so it's not guaranteed globally optimal, just internally consistent
-(unlike the old independent-suggestions approach, which could recommend the same buy target
-multiple times). The squad-rebuild optimizer is genuinely optimal for its stated objective, but
-builds from scratch — it doesn't account for the cost/hits of actually transferring from your
-current squad into it; that's still the transfer plan's job.
+- [x] Multi-week transfer horizon (`src/recommendations/horizon.py`) — projects each player's
+      existing next-GW prediction across the next `DEFAULT_HORIZON` (5) gameweeks, scaled
+      week-by-week by their team's fixture difficulty (`v_fixture_difficulty`, reused from
+      Phase 2). Deliberately not recursive re-prediction: the model only outputs total_points
+      and minutes directly, so simulating the ~10 other rolling-feature inputs forward would
+      mean crude approximation compounding over the window. One row per (player, fixture) means
+      a blank gameweek naturally contributes 0 and a double gameweek is counted twice, with no
+      special-casing needed. The transfer plan, squad-rebuild optimizer, and starting-XI
+      auto-substitution all take a `value_col` parameter now — pass `"horizon_points"` instead
+      of the default `"predicted_points"` to rank/optimize on the 5-GW window instead of just
+      next gameweek. Wired into the dashboard as toggles on the transfer plan and Optimal Squad
+      tabs, and as an extra column + sort option on Transfer Targets.
+
+**Known limitations, still true**: the transfer plan is greedy (picks the best single transfer
+at each step), not a global search over combinations — an early pick can block a better later
+combination, so it's not guaranteed globally optimal, just internally consistent (unlike the
+old independent-suggestions approach, which could recommend the same buy target multiple
+times). The squad-rebuild optimizer is genuinely optimal for its stated objective, but builds
+from scratch — it doesn't account for the cost/hits of actually transferring from your current
+squad into it; that's still the transfer plan's job. The fixture-difficulty multiplier
+(`DIFFICULTY_SENSITIVITY` in `horizon.py`) is a hand-picked coefficient, not fit to data — it
+hasn't been backtested against how much fixture difficulty actually should move a points
+projection.
 
 ## Build phases
 

@@ -18,11 +18,16 @@ VALID_FORMATIONS = [  # (DEF, MID, FWD), GKP is always exactly 1 and always star
 ]
 
 
-def best_starting_xi(squad: pd.DataFrame) -> tuple[pd.DataFrame, tuple[int, int, int]]:
-    """squad: 15 rows with position ('GKP'/'DEF'/'MID'/'FWD') and predicted_points.
+def best_starting_xi(
+    squad: pd.DataFrame, value_col: str = "predicted_points",
+) -> tuple[pd.DataFrame, tuple[int, int, int]]:
+    """squad: 15 rows with position ('GKP'/'DEF'/'MID'/'FWD') and value_col.
+    value_col: "predicted_points" (next-GW, default) or "horizon_points"
+        (src.recommendations.horizon) to pick the XI that projects best over a multi-week
+        window instead of just the next gameweek.
     Returns (starting_xi_df, (def_count, mid_count, fwd_count))."""
     by_pos = {
-        pos: squad[squad["position"] == pos].sort_values("predicted_points", ascending=False)
+        pos: squad[squad["position"] == pos].sort_values(value_col, ascending=False)
         for pos in ("GKP", "DEF", "MID", "FWD")
     }
     gkp = by_pos["GKP"].head(1)
@@ -36,7 +41,7 @@ def best_starting_xi(squad: pd.DataFrame) -> tuple[pd.DataFrame, tuple[int, int,
         outfield = pd.concat([
             by_pos["DEF"].head(def_n), by_pos["MID"].head(mid_n), by_pos["FWD"].head(fwd_n),
         ])
-        total = outfield["predicted_points"].sum() + gkp["predicted_points"].sum()
+        total = outfield[value_col].sum() + gkp[value_col].sum()
         if total > best_total:
             best_total = total
             best_formation = (def_n, mid_n, fwd_n)
