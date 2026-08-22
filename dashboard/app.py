@@ -16,7 +16,7 @@ import streamlit as st
 
 from config import settings
 from src.recommendations.squad_optimizer import best_starting_xi
-from src.recommendations.transfers import suggest_transfers
+from src.recommendations.transfers import compute_free_transfers, suggest_transfer_plan
 
 st.set_page_config(page_title="Fergie's Regression", layout="wide")
 
@@ -73,13 +73,15 @@ def load_fixture_difficulty(season: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def load_squad(season: str, entry_id: int) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Returns (squad_df, manager_gw_df) for the entry's most recent ingested gameweek."""
+    """Returns (squad_df, manager_gw_df). manager_gw_df has ALL ingested gameweeks for this
+    entry (needed for compute_free_transfers, which needs the whole event_transfers history,
+    not just the latest row) - iloc[0] is still the most recent gameweek, ordered descending."""
     conn = get_connection()
     manager_gw = pd.read_sql_query(
         """
         SELECT * FROM manager_gameweeks
         WHERE entry_id = %(entry_id)s AND season = %(season)s
-        ORDER BY event_id DESC LIMIT 1
+        ORDER BY event_id DESC
         """,
         conn, params={"entry_id": entry_id, "season": season},
     )
@@ -232,28 +234,29 @@ if settings.ENTRY_ID:
                 )
 
             st.divider()
-            st.subheader("Transfer suggestions")
-            st.caption(
-                "Same position, affordable with your current price + bank, respects the max-3-per-team "
-                "rule. Each row is an independent 1-for-1 comparison — not a coordinated multi-transfer "
-                "plan, so don't read two rows recommending the same buy as 'buy them twice'. "
-                "'Net gain' assumes a free transfer; 'if hit' shows the same swap after a -4 point cost "
-                "— this dashboard doesn't yet track how many free transfers you actually have banked, "
-                "so use your own judgment on which column applies."
-            )
+            st.subheader("Recommended transfer plan")
+            free_transfers = compute_free_transfers(manager_gw)
             bank = float(gw_row["bank"]) / 10 if gw_row is not None else 0.0
-            suggestions = suggest_transfers(squad, rankings, bank, top_n=2)
-            if suggestions.empty:
-                st.info("No positive-gain transfer suggestions found within budget.")
+            st.caption(
+                f"You have **{free_transfers}** free transfer(s) available (computed from your "
+                "transfer history — FPL's 2026/27 rule allows banking up to 5). This is a "
+                "coordinated plan, not independent suggestions: each transfer accounts for the "
+                "ones before it, so you'll never see the same buy target twice. Greedy — picks "
+                "the single best transfer at each step, not a global search over combinations — "
+                "and stops as soon as the next transfer wouldn't survive its hit cost."
+            )
+            plan, remaining_bank = suggest_transfer_plan(squad, rankings, bank, free_transfers)
+            if plan.empty:
+                st.info("No positive-net-gain transfer found — your squad already looks efficient.")
             else:
                 st.dataframe(
-                    suggestions.rename(columns={
-                        "sell": "Sell", "sell_position": "Pos", "sell_predicted": "Sell predicted",
-                        "sell_price": "Sell price", "buy": "Buy", "buy_predicted": "Buy predicted",
-                        "buy_price": "Buy price", "net_gain": "Net gain", "net_gain_if_hit": "Net gain (if -4 hit)",
+                    plan.rename(columns={
+                        "transfer_num": "#", "sell": "Sell", "buy": "Buy", "gain": "Predicted gain",
+                        "hit": "Hit cost", "net": "Net gain", "free_transfer_used": "Free transfer",
                     }),
                     use_container_width=True, hide_index=True,
                 )
+                st.caption(f"Bank after this plan: £{remaining_bank:.1f}m")
 
 with tab_rankings:
     st.subheader("Player rankings")

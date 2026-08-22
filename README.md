@@ -84,23 +84,26 @@ Run the dashboard: `streamlit run dashboard/app.py`
 
 **Phase 5 — Decision engine** (partially complete — single-gameweek horizon only, see below)
 
-- [x] Transfer suggestions (`src/recommendations/transfers.py`) — best available same-position
-      replacement per squad player, respects budget (price + bank) and the max-3-per-team rule
+- [x] Coordinated transfer plan (`src/recommendations/transfers.py`) — greedily builds a
+      sequence of transfers (not independent 1-for-1 suggestions), so a 2nd transfer never
+      recommends a target already used by the 1st. Applies `TRANSFER_HIT_COST` (-4) once free
+      transfers run out, and stops as soon as the next transfer wouldn't survive its hit cost
+- [x] Free-transfers-remaining tracking (`compute_free_transfers`) — computed entirely from
+      `manager_gameweeks.event_transfers` history already ingested (no new endpoint needed),
+      following the 2026/27 rule change to a 5-transfer bank (was 2)
 - [x] Starting XI auto-substitution (`src/recommendations/squad_optimizer.py`) — brute-forces
       all 8 legal FPL formations against your actual 15, exact not heuristic (within a fixed
       formation, top-N predicted points per position is trivially optimal)
 - [x] Captain check (built in Phase 3, still here) — flags when the model's top predicted
       scorer in your XI differs from your actual captain
-- [x] Transfer-hit (-4) cost shown alongside the free-transfer net gain, so a marginal swap
-      that only looks good for free is visibly distinguished from one that survives a hit
 
 **Known limitations, still true**: everything above is single-gameweek — our `predictions`
 table only has next-gameweek projections, so there's no multi-week transfer planning (the
-plan's "5-GW transfer horizon") yet. Transfer suggestions are independent 1-for-1 comparisons,
-not a coordinated multi-transfer plan — two rows recommending the same buy target means "either
-of these is a good swap," not "buy them twice." The dashboard doesn't track how many free
-transfers you actually have banked (would need the `entry/{id}/transfers/` endpoint, not
-ingested). A full squad rebuild from the entire player pool under budget (real integer
+plan's "5-GW transfer horizon") yet. The transfer plan is greedy (picks the best single
+transfer at each step), not a global search over combinations — an early pick can block a
+better later combination, so it's not guaranteed globally optimal, just internally consistent
+(unlike the old independent-suggestions approach, which could recommend the same buy target
+multiple times). A full squad rebuild from the entire player pool under budget (real integer
 programming, per the plan's "Transfer Optimization" section) is not built — what exists only
 optimizes within your *existing* 15.
 
