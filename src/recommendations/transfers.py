@@ -10,6 +10,7 @@ from __future__ import annotations
 import pandas as pd
 
 MAX_PER_TEAM = 3
+TRANSFER_HIT_COST = 4  # points deducted for a transfer beyond your free ones
 
 
 def suggest_transfers(squad: pd.DataFrame, rankings: pd.DataFrame, bank: float, top_n: int = 3) -> pd.DataFrame:
@@ -48,11 +49,12 @@ def suggest_transfers(squad: pd.DataFrame, rankings: pd.DataFrame, bank: float, 
                 "sell_predicted": current["predicted_points"], "sell_price": current["price"],
                 "buy": cand["web_name"], "buy_predicted": cand["predicted_points"],
                 "buy_price": cand["price"], "net_gain": round(cand["net_gain"], 3),
+                "net_gain_if_hit": round(cand["net_gain"] - TRANSFER_HIT_COST, 3),
             })
 
     if not suggestions:
         return pd.DataFrame(columns=[
             "sell", "sell_position", "sell_predicted", "sell_price",
-            "buy", "buy_predicted", "buy_price", "net_gain",
+            "buy", "buy_predicted", "buy_price", "net_gain", "net_gain_if_hit",
         ])
     return pd.DataFrame(suggestions).sort_values("net_gain", ascending=False).reset_index(drop=True)

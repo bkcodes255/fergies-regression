@@ -236,8 +236,10 @@ if settings.ENTRY_ID:
             st.caption(
                 "Same position, affordable with your current price + bank, respects the max-3-per-team "
                 "rule. Each row is an independent 1-for-1 comparison — not a coordinated multi-transfer "
-                "plan, so don't read two rows recommending the same buy as 'buy them twice'. Doesn't "
-                "account for a transfer hit (-4) if you're out of free transfers."
+                "plan, so don't read two rows recommending the same buy as 'buy them twice'. "
+                "'Net gain' assumes a free transfer; 'if hit' shows the same swap after a -4 point cost "
+                "— this dashboard doesn't yet track how many free transfers you actually have banked, "
+                "so use your own judgment on which column applies."
             )
             bank = float(gw_row["bank"]) / 10 if gw_row is not None else 0.0
             suggestions = suggest_transfers(squad, rankings, bank, top_n=2)
@@ -248,7 +250,7 @@ if settings.ENTRY_ID:
                     suggestions.rename(columns={
                         "sell": "Sell", "sell_position": "Pos", "sell_predicted": "Sell predicted",
                         "sell_price": "Sell price", "buy": "Buy", "buy_predicted": "Buy predicted",
-                        "buy_price": "Buy price", "net_gain": "Net gain",
+                        "buy_price": "Buy price", "net_gain": "Net gain", "net_gain_if_hit": "Net gain (if -4 hit)",
                     }),
                     use_container_width=True, hide_index=True,
                 )

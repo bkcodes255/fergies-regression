@@ -91,13 +91,16 @@ Run the dashboard: `streamlit run dashboard/app.py`
       formation, top-N predicted points per position is trivially optimal)
 - [x] Captain check (built in Phase 3, still here) — flags when the model's top predicted
       scorer in your XI differs from your actual captain
+- [x] Transfer-hit (-4) cost shown alongside the free-transfer net gain, so a marginal swap
+      that only looks good for free is visibly distinguished from one that survives a hit
 
-**Known limitations, by design for now**: everything above is single-gameweek — our
-`predictions` table only has next-gameweek projections, so there's no multi-week transfer
-planning (the plan's "5-GW transfer horizon") yet. Transfer suggestions are independent 1-for-1
-comparisons, not a coordinated multi-transfer plan — two rows recommending the same buy target
-means "either of these is a good swap," not "buy them twice." No transfer-hit (-4) cost
-modeling. A full squad rebuild from the entire player pool under budget (real integer
+**Known limitations, still true**: everything above is single-gameweek — our `predictions`
+table only has next-gameweek projections, so there's no multi-week transfer planning (the
+plan's "5-GW transfer horizon") yet. Transfer suggestions are independent 1-for-1 comparisons,
+not a coordinated multi-transfer plan — two rows recommending the same buy target means "either
+of these is a good swap," not "buy them twice." The dashboard doesn't track how many free
+transfers you actually have banked (would need the `entry/{id}/transfers/` endpoint, not
+ingested). A full squad rebuild from the entire player pool under budget (real integer
 programming, per the plan's "Transfer Optimization" section) is not built — what exists only
 optimizes within your *existing* 15.
 
