@@ -127,7 +127,7 @@ squad into it; that's still the transfer plan's job. The fixture-difficulty mult
 hasn't been backtested against how much fixture difficulty actually should move a points
 projection.
 
-**Phase 6 — Validation** (decision-engine backtest done; see below for scope)
+**Phase 6 — Validation** (complete)
 
 - [x] Decision-engine backtest (`src/validation/backtest.py`, `notebooks/07_decision_backtest.ipynb`)
       — simulates the full held-out 2025-26 season week by week using only leak-free,
@@ -150,8 +150,27 @@ projection.
 
       This validates the decision engine itself, on top of Phase 4's existing prediction-model
       backtest (R²=0.317 on the same held-out season, `notebooks/06_model_comparison.ipynb`).
-      Cross-validation of the model (walk-forward across seasons/gameweeks, vs. today's single
-      train/holdout split) is the one piece of the original "Validation" scope not yet built.
+
+- [x] Model cross-validation (`src/models/cross_validate.py`, `notebooks/08_cross_validation.ipynb`)
+      — notebook 06 evaluates model selection with a single train/holdout split (train on
+      2022-23+2023-24+2024-25, test on 2025-26): one R²/RMSE reading per model type. This
+      repeats that same expanding-window backtest at every season boundary the historical
+      archive has (fold 1: train=2022-23, test=2023-24; fold 2: train=2022-23+2023-24, test=
+      2024-25; fold 3: notebook 06's own split), to check whether model selection is stable or
+      a lucky split. It is: Random Forest wins `total_points_direct` in all 3 folds
+      (R²=0.288 → 0.300 → 0.320 as training data grows, mean 0.303 ± 0.016 — the lowest
+      cross-fold std of any model type), and `points_per_90` stays weak/unstable in every fold
+      (R² near zero, sometimes negative), reinforcing Phase 4's "direct beats decomposed"
+      finding across three independent test seasons, not just one. Purely an evaluation
+      exercise — doesn't write to `model_versions` or save joblib artifacts, so it can't
+      accidentally outrank the real deployed model (trained on all 3 prior seasons) in
+      `predict_live.get_best_model`'s selection with a fold trained on less data that got lucky
+      on an easier test season. Net effect on the deployed model: none — Random Forest was
+      already what's shipped in `models/total_points_direct_random_forest.joblib`; this just
+      strengthens the evidence the choice was right.
+
+      Phase 6 is now complete: decision-engine backtesting and model cross-validation both
+      done, on top of Phase 4's original no-leakage holdout backtest.
 
       **Known simplifications**, documented in `src/validation/backtest.py`'s module
       docstring: no historical injury/availability data survives in the archive (every player
