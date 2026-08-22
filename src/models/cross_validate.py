@@ -14,9 +14,15 @@ selection, which just picks the lowest recorded RMSE.
 
 Folds (expanding window, always respecting season order - a fold never tests on a season that's
 also in its own training data):
-  fold 1: train=[2022-23]                    test=2023-24
-  fold 2: train=[2022-23, 2023-24]            test=2024-25
-  fold 3: train=[2022-23, 2023-24, 2024-25]   test=2025-26   (== train.py's own split)
+  fold 1: train=[2020-21]                                              test=2021-22
+  fold 2: train=[2020-21, 2021-22]                                     test=2022-23
+  fold 3: train=[2020-21, 2021-22, 2022-23]                            test=2023-24
+  fold 4: train=[2020-21, 2021-22, 2022-23, 2023-24]                   test=2024-25
+  fold 5: train=[2020-21, 2021-22, 2022-23, 2023-24, 2024-25]          test=2025-26  (== train.py's own split)
+
+2020-21/2021-22 predate FPL tracking `starts`/xG-family stats at all (see
+historical_features.py's module docstring) - folds involving them as training or test data rely
+on the xg_data_available flag rather than fabricated values for those features.
 
 Run directly:
     python -m src.models.cross_validate
@@ -32,7 +38,7 @@ from xgboost import XGBRegressor
 from src.features.historical_features import FEATURE_COLS, build_training_frame
 from src.models.train import RF_PARAMS, XGB_PARAMS, direct_points_baseline
 
-SEASON_ORDER = ["2022-23", "2023-24", "2024-25", "2025-26"]
+SEASON_ORDER = ["2020-21", "2021-22", "2022-23", "2023-24", "2024-25", "2025-26"]
 FOLDS = [(SEASON_ORDER[:i], SEASON_ORDER[i]) for i in range(1, len(SEASON_ORDER))]
 
 TARGETS = [

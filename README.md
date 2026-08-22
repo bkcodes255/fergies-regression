@@ -40,9 +40,17 @@ or re-execute headlessly with `nbclient`.
 
 **Phase 4 — Prediction** (complete)
 
-- [x] Historical training data: 3 seasons (2023-24, 2024-25, 2025-26) from the
-      vaastav/Fantasy-Premier-League archive, leak-free rolling features
-      (`src/features/historical_features.py`)
+- [x] Historical training data: 5 seasons (2020-21 through 2024-25) from the
+      vaastav/Fantasy-Premier-League archive, test season 2025-26 held out entirely — leak-free
+      rolling features (`src/features/historical_features.py`). Re-download with
+      `scripts/download_historical_data.sh` (gitignored, not committed). FPL's own data has real
+      schema gaps across seasons, not just missing files: 2020-21/2021-22 predate `starts` and
+      the expected_* (xG-family) stats entirely, so those rows get `xg_data_available=0` and
+      their derived rolling features zeroed rather than a fabricated value (same treatment
+      `dc_data_available` already gets for `defensive_contribution`, which only exists from
+      2025-26). Seasons before 2020-21 go a step further and drop `position`/`team` from the
+      gameweek file itself — not yet supported, would need a per-season `players_raw.csv`
+      lookup first.
 - [x] Minutes model, points-per-90 model, and a direct total-points model — each compared across
       baseline/linear regression/Random Forest/XGBoost (`src/models/train.py`), tracked in the
       `model_versions` table
@@ -52,13 +60,27 @@ or re-execute headlessly with `nbclient`.
 `points_per_90` and `minutes` separately and combines them
 (`expected_points = points_per_90_pred * minutes_pred / 90`). Backtested on the full held-out
 2025-26 season, that decomposition actually *underperforms* a single model predicting total
-points directly (R²=0.117 vs R²=0.317) — about 61% of player-gameweeks are unused/fringe
+points directly (R²=0.141 vs R²=0.320) — about 61% of player-gameweeks are unused/fringe
 players with exactly 0 minutes, and two separately-noisy nonzero-biased predictions multiply
 into a nonzero result more often than a direct model, which can learn "this profile → 0" as one
 clean pattern. **The direct Random Forest model on `total_points` is the recommended
-predictor.** The minutes model (R²=0.636) is still kept for rotation-risk flagging, just not as
+predictor.** The minutes model (R²=0.632) is still kept for rotation-risk flagging, just not as
 a multiplicative input to points prediction. See `notebooks/06_model_comparison.ipynb` for the
 full comparison.
+
+**Hyperparameters** (`RF_PARAMS` in `train.py`): a 5-fold walk-forward grid search (see Phase 6
+below) found a shallower, more-regularized Random Forest (`max_depth=6, min_samples_leaf=10`,
+down from the original `8`/`5`) wins on `total_points_direct` in every fold with lower
+cross-fold variance, and trains faster. An unconstrained config (`max_depth=None,
+min_samples_leaf=2`) tested clearly worse, confirming the original model was mildly overfit, not
+underfit. Checked against the other two targets too — negligible effect either way (minutes
+R² -0.003, points_per_90 R² +0.002) — so this is a net win with no real cost.
+
+Adding the two older seasons (2020-21/2021-22) to training data alone, before the hyperparameter
+change, left the deployed configuration's held-out R² completely unchanged (0.320 both ways) —
+those seasons are missing the whole xG-family feature block, so the extra rows are lower-signal
+per row than the newer seasons already in the training set. More historical data wasn't free
+lunch here; the hyperparameter tuning is what actually moved the needle.
 
 **Phase 3 — MVP dashboard** (complete — built after Phase 4, so it has real predictions to
 show, not just descriptive stats)
@@ -141,56 +163,74 @@ projection.
          with actual (hindsight) results. A same-squad ceiling that isolates weekly-judgment
          quality from squad-composition quality.
 
-      2025-26 result: full engine **1928 pts** (52.1/GW) vs. static squad **1612 pts**
-      (43.6/GW) vs. static-squad-with-oracle-picks **1779 pts** (48.1/GW). The transfer plan
-      contributed **+316 pts** over the season (engine vs. static) — more than even perfect
-      weekly lineup/captain choices from a frozen squad would have (+167 pts, static oracle vs.
+      2025-26 result: full engine **1791 pts** (48.4/GW) vs. static squad **1445 pts**
+      (39.1/GW) vs. static-squad-with-oracle-picks **1637 pts** (44.2/GW). The transfer plan
+      contributed **+346 pts** over the season (engine vs. static) — more than even perfect
+      weekly lineup/captain choices from a frozen squad would have (+192 pts, static oracle vs.
       static) — meaning the *decisions*, not just the predictions, hold up against a real
-      season, and the transfer plan specifically is the dominant value driver.
+      season, and the transfer plan specifically is the dominant value driver. (Re-run after the
+      historical-data expansion below; absolute totals moved because the GW2 MILP squad pick
+      changed with the retrained model, but the relative story — transfer plan as the dominant
+      value driver — held.)
 
       This validates the decision engine itself, on top of Phase 4's existing prediction-model
-      backtest (R²=0.317 on the same held-out season, `notebooks/06_model_comparison.ipynb`).
+      backtest (R²=0.320 on the same held-out season, `notebooks/06_model_comparison.ipynb`).
 
 - [x] Model cross-validation (`src/models/cross_validate.py`, `notebooks/08_cross_validation.ipynb`)
-      — notebook 06 evaluates model selection with a single train/holdout split (train on
-      2022-23+2023-24+2024-25, test on 2025-26): one R²/RMSE reading per model type. This
-      repeats that same expanding-window backtest at every season boundary the historical
-      archive has (fold 1: train=2022-23, test=2023-24; fold 2: train=2022-23+2023-24, test=
-      2024-25; fold 3: notebook 06's own split), to check whether model selection is stable or
-      a lucky split. It is: Random Forest wins `total_points_direct` in all 3 folds
-      (R²=0.288 → 0.300 → 0.320 as training data grows, mean 0.303 ± 0.016 — the lowest
-      cross-fold std of any model type), and `points_per_90` stays weak/unstable in every fold
-      (R² near zero, sometimes negative), reinforcing Phase 4's "direct beats decomposed"
-      finding across three independent test seasons, not just one. Purely an evaluation
-      exercise — doesn't write to `model_versions` or save joblib artifacts, so it can't
-      accidentally outrank the real deployed model (trained on all 3 prior seasons) in
-      `predict_live.get_best_model`'s selection with a fold trained on less data that got lucky
-      on an easier test season. Net effect on the deployed model: none — Random Forest was
-      already what's shipped in `models/total_points_direct_random_forest.joblib`; this just
-      strengthens the evidence the choice was right.
+      — notebook 06 evaluates model selection with a single train/holdout split: one R²/RMSE
+      reading per model type. This repeats that same expanding-window backtest at every season
+      boundary the historical archive has (5 folds, e.g. fold 1: train=2020-21, test=2021-22,
+      ... fold 5: train=2020-21 through 2024-25, test=2025-26 — notebook 06's own split), to
+      check whether model selection is stable or a lucky split. It is: Random Forest wins
+      `total_points_direct` in every fold (mean R²=0.297 ± 0.020 — the lowest cross-fold std of
+      any model type), and `points_per_90` stays weak/unstable in every fold (R² near zero,
+      sometimes negative), reinforcing Phase 4's "direct beats decomposed" finding across five
+      independent test seasons, not just one. Purely an evaluation exercise — doesn't write to
+      `model_versions` or save joblib artifacts, so it can't accidentally outrank the real
+      deployed model in `predict_live.get_best_model`'s selection with a fold trained on less
+      data that got lucky on an easier test season. This notebook's own results directly fed the
+      hyperparameter tuning below.
 
 - [x] Feature importance + error analysis (`src/models/error_analysis.py`,
       `notebooks/09_error_analysis.ipynb`) — a diagnostic pass on the deployed model, not just
-      its headline R². Feature importance: `minutes_roll3` alone is ~62% of total importance,
-      plus `ict_index_roll3`/`ict_index_roll5` (~18%) — three features explain ~80% of the
+      its headline R². Feature importance: `minutes_roll3` alone is ~66% of total importance,
+      plus `ict_index_roll3`/`ict_index_roll5` (~23%) — three features explain ~89% of the
       model's decisions, meaning it's mostly answering "will this player play" rather than "how
       well will they play." **The real finding**: bucketing the held-out season by actual
       outcome shows the model's average prediction barely moves past ~3 points regardless of
-      how big the real result was — for an actual 11+-point haul, mean predicted is 3.08 (less
+      how big the real result was — for an actual 11+-point haul, mean predicted is 3.00 (less
       than a quarter of what happened). This is textbook regression-to-the-mean for an
       MSE-trained model on a right-skewed target: minimizing squared error rewards hedging
       toward a safe low prediction over confidently guessing big and sometimes being wrong. It's
       correct under the training objective, but it's specifically the failure mode that matters
       most for captaincy (doubling a haul is how a gameweek is won) and differential transfers —
-      areas the decision-engine backtest (Phase 6) already flagged the transfer plan, not weekly
-      captain judgment, as the dominant value driver. Two directions worth considering before
-      Phase 7, not yet built: predicting a distribution/haul-probability instead of a point
-      estimate, or a haul-specific feature set (shot volume trend, set-piece role, opponent
-      defensive weakness) instead of general-form features.
+      areas the decision-engine backtest above already flagged the transfer plan, not weekly
+      captain judgment, as the dominant value driver. This finding held essentially unchanged
+      through the historical-data expansion and hyperparameter retune below (haul mean predicted
+      moved from 3.08 to 3.00) — it's a structural property of predicting a point estimate for a
+      right-skewed target, not something more data or tuning fixes on its own. Two directions
+      worth considering before Phase 7, not yet built: predicting a distribution/haul-probability
+      instead of a point estimate, or a haul-specific feature set (shot volume trend, set-piece
+      role, opponent defensive weakness) instead of general-form features.
 
-      Phase 6 is now complete: decision-engine backtesting, model cross-validation, and a
-      feature-importance/error-analysis pass, on top of Phase 4's original no-leakage holdout
-      backtest.
+- [x] Historical data expansion + hyperparameter retune (2026-08-22) — added 2020-21/2021-22 to
+      training data (`scripts/download_historical_data.sh`, 5 training seasons total now; see
+      Phase 4 above for the schema-gap handling those two seasons needed) and re-ran the Phase 6
+      harnesses above to guide an actual parameter search rather than tuning blind. Adding the
+      two older seasons alone, before any hyperparameter change, left the deployed
+      configuration's held-out R² completely unchanged (0.320 both ways) — those seasons are
+      missing the whole xG-family feature block, so more rows didn't mean more signal. A 5-fold
+      grid search on `total_points_direct` *did* find a real improvement: a shallower,
+      more-regularized Random Forest (`max_depth=6, min_samples_leaf=10`, down from `8`/`5`)
+      wins every fold with lower cross-fold variance and trains faster; an unconstrained config
+      tested clearly worse, confirming the original model was mildly overfit, not underfit.
+      Adopted as the new default and retrained/redeployed (`model_id=43`); checked against the
+      other two targets first — negligible effect either way. All of notebooks 06-09 were
+      re-executed against the retrained model so their baked-in output reflects it.
+
+      Phase 6 is now complete: decision-engine backtesting, model cross-validation, a
+      feature-importance/error-analysis pass, and a data/hyperparameter iteration guided by
+      that harness, on top of Phase 4's original no-leakage holdout backtest.
 
       **Known simplifications**, documented in `src/validation/backtest.py`'s module
       docstring: no historical injury/availability data survives in the archive (every player

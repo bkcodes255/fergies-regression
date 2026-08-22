@@ -14,8 +14,11 @@ profile -> 0" cleanly. See notebooks/06_model_comparison.ipynb. total_points_dir
 recommended predictor; the other two are kept for their own value (minutes for rotation-risk
 flagging) not as multiplicative inputs.
 
-Split: train on 2022-23 + 2023-24 + 2024-25, test on the entire 2025-26 season - a season the
-models never see during training, so this is a genuine backtest, not an in-sample fit.
+Split: train on 2020-21 through 2024-25 (5 seasons), test on the entire 2025-26 season - a
+season the models never see during training, so this is a genuine backtest, not an in-sample
+fit. 2020-21/2021-22 predate FPL tracking `starts` and the expected_* (xG-family) stats at all;
+those rows get xg_data_available=0 and their derived features zeroed rather than a fabricated
+value (see historical_features.py's module docstring).
 
 Run directly:
     python -m src.models.train
@@ -36,11 +39,19 @@ from xgboost import XGBRegressor
 from src.features.historical_features import FEATURE_COLS, build_training_frame
 from src.ingestion.db import get_connection
 
-TRAIN_SEASONS = ["2022-23", "2023-24", "2024-25"]
+TRAIN_SEASONS = ["2020-21", "2021-22", "2022-23", "2023-24", "2024-25"]
 TEST_SEASON = "2025-26"
 MODELS_DIR = Path(__file__).resolve().parent.parent.parent / "models"
 
-RF_PARAMS = {"n_estimators": 200, "max_depth": 8, "min_samples_leaf": 5, "random_state": 42, "n_jobs": -1}
+RF_PARAMS = {"n_estimators": 200, "max_depth": 6, "min_samples_leaf": 10, "random_state": 42, "n_jobs": -1}
+# max_depth=8/min_samples_leaf=5 was the original Phase 4 choice. A 5-fold walk-forward grid
+# search on total_points_direct (see notebooks/08_cross_validation.ipynb) found this shallower,
+# more-regularized config wins every fold with lower cross-fold variance (mean R2 0.297+/-0.020
+# vs 0.294+/-0.021) and trains faster; an unconstrained config (max_depth=None,
+# min_samples_leaf=2) tested clearly worse (R2 0.254), confirming the model was mildly overfit,
+# not underfit. Checked against the other two targets too: minutes R2 -0.003 (negligible),
+# points_per_90 R2 +0.002 (negligible) - net effect is a real win on the deployed target with no
+# meaningful cost elsewhere.
 XGB_PARAMS = {"n_estimators": 300, "max_depth": 5, "learning_rate": 0.05, "random_state": 42}
 
 

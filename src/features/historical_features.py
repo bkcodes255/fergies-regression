@@ -14,6 +14,11 @@ defensive_contribution and its raw-count inputs (clearances_blocks_interceptions
 recoveries) only exist in FPL data from the 2025-26 season onward - older seasons don't have
 the columns at all, not just zeros. Rows from those seasons get dc_data_available=0 and the
 dc_roll* features zeroed, rather than fabricating a value that never existed.
+
+Same gap, same fix, for `starts` and the expected_* (xG-family) stats: FPL didn't track them at
+all before the 2022-23 season, so 2020-21/2021-22 (added to broaden training data beyond the
+original 3-season window) get xg_data_available=0 and their derived roll features zeroed rather
+than a fabricated 0.0 that looks like a real "no expected-goal involvement" reading.
 """
 from __future__ import annotations
 
@@ -33,6 +38,7 @@ SUM_COLS = [
     "expected_goals_conceded", "influence", "creativity", "threat", "ict_index",
 ]
 DC_SUM_COLS = ["clearances_blocks_interceptions", "defensive_contribution", "recoveries", "tackles"]
+XG_SUM_COLS = ["starts", "expected_goals", "expected_assists", "expected_goal_involvements", "expected_goals_conceded"]
 FIRST_COLS = ["name", "position", "value", "selected"]
 
 
@@ -55,7 +61,13 @@ def _load_season(season_dir: Path) -> pd.DataFrame:
     df["code"] = df["element"].map(_load_code_mapping(season_dir))
 
     has_dc = season in SEASONS_WITH_DC
+    has_xg = "expected_goals" in df.columns  # FPL didn't track xG-family stats or `starts`
+    # at all before 2022-23 - detected from the raw file rather than a hardcoded season list,
+    # so adding another pre-2022-23 season later doesn't need a code change here too.
     for col in DC_SUM_COLS:
+        if col not in df.columns:
+            df[col] = np.nan
+    for col in XG_SUM_COLS:
         if col not in df.columns:
             df[col] = np.nan
 
@@ -64,6 +76,7 @@ def _load_season(season_dir: Path) -> pd.DataFrame:
 
     grouped = df.groupby(["season", "element", "GW"], as_index=False).agg(agg)
     grouped["dc_data_available"] = int(has_dc)
+    grouped["xg_data_available"] = int(has_xg)
     return grouped
 
 
@@ -164,6 +177,11 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
         result.loc[result["dc_data_available"] == 0, col] = 0.0
         result[col] = result[col].fillna(0.0)
 
+    xg_cols = [c for c in result.columns if c.startswith(("xg_per90_roll", "xa_per90_roll", "xgc_per90_roll", "starts_rate_roll"))]
+    for col in xg_cols:
+        result.loc[result["xg_data_available"] == 0, col] = 0.0
+        result[col] = result[col].fillna(0.0)
+
     prior_frames = []
     for season in result["season"].unique():
         summary = _prior_season_summary(season)
@@ -191,7 +209,7 @@ FEATURE_COLS = [
     # it as a raw manager COUNT, not a percentage, so it's on a different scale per season
     # and would not transfer cleanly to our own live pipeline's selected_by_percent when this
     # model is later applied to 2026/27 data. Price and rolling performance are scale-stable.
-    "price", "dc_data_available",
+    "price", "dc_data_available", "xg_data_available",
     "season_points_per90_avg", "season_minutes_avg",
     "had_prior_season", "prev_season_points_per90", "prev_season_minutes_avg", "prev_season_total_points",
 ] + [f"{stat}_roll{w}" for w in ROLLING_WINDOWS for stat in (
