@@ -127,6 +127,39 @@ squad into it; that's still the transfer plan's job. The fixture-difficulty mult
 hasn't been backtested against how much fixture difficulty actually should move a points
 projection.
 
+**Phase 6 — Validation** (decision-engine backtest done; see below for scope)
+
+- [x] Decision-engine backtest (`src/validation/backtest.py`, `notebooks/07_decision_backtest.ipynb`)
+      — simulates the full held-out 2025-26 season week by week using only leak-free,
+      at-the-time predictions (never a gameweek's own result), and scores three policies
+      against real historical outcomes:
+      1. **Full decision engine** — MILP squad pick, then every week the greedy transfer plan +
+         auto-substitution + captain choice, all prediction-driven.
+      2. **Static squad** — the same starting squad, never transferred again, but
+         auto-sub/captain still prediction-driven. Isolates the transfer plan's marginal value.
+      3. **Static squad, oracle picks** — the same frozen squad, but auto-sub/captain chosen
+         with actual (hindsight) results. A same-squad ceiling that isolates weekly-judgment
+         quality from squad-composition quality.
+
+      2025-26 result: full engine **1928 pts** (52.1/GW) vs. static squad **1612 pts**
+      (43.6/GW) vs. static-squad-with-oracle-picks **1779 pts** (48.1/GW). The transfer plan
+      contributed **+316 pts** over the season (engine vs. static) — more than even perfect
+      weekly lineup/captain choices from a frozen squad would have (+167 pts, static oracle vs.
+      static) — meaning the *decisions*, not just the predictions, hold up against a real
+      season, and the transfer plan specifically is the dominant value driver.
+
+      This validates the decision engine itself, on top of Phase 4's existing prediction-model
+      backtest (R²=0.317 on the same held-out season, `notebooks/06_model_comparison.ipynb`).
+      Cross-validation of the model (walk-forward across seasons/gameweeks, vs. today's single
+      train/holdout split) is the one piece of the original "Validation" scope not yet built.
+
+      **Known simplifications**, documented in `src/validation/backtest.py`'s module
+      docstring: no historical injury/availability data survives in the archive (every player
+      treated as always selectable); no reactive real-FPL auto-substitution for a starter who
+      blanks; the multi-week fixture-difficulty horizon isn't used (it needs live-ingested
+      fixture data only 2026/27 has) — this backtest is single-gameweek-horizon, like the live
+      dashboard's default.
+
 ## Build phases
 
 1. **Foundation** — FPL API client, raw snapshots, Postgres schema, manual ingestion

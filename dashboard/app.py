@@ -298,7 +298,7 @@ if settings.ENTRY_ID:
                     "Ranking players on next gameweek's prediction only."
                 )
             )
-            plan, remaining_bank = suggest_transfer_plan(
+            plan, _, remaining_bank = suggest_transfer_plan(
                 squad, rankings, bank, free_transfers, value_col=plan_value_col
             )
             if plan.empty:

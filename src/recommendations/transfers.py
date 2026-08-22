@@ -111,7 +111,7 @@ def _best_single_transfer(squad: pd.DataFrame, rankings: pd.DataFrame, bank: flo
 def suggest_transfer_plan(
     squad: pd.DataFrame, rankings: pd.DataFrame, bank: float, free_transfers: int, max_transfers: int = 5,
     value_col: str = "predicted_points",
-) -> tuple[pd.DataFrame, float]:
+) -> tuple[pd.DataFrame, pd.DataFrame, float]:
     """Greedily builds a COORDINATED multi-transfer plan, unlike suggest_transfers() (whose
     rows are independent 1-for-1 comparisons that can recommend the same buy target more than
     once). Picks the single best transfer, applies it to a working copy of the squad/bank/team
@@ -127,7 +127,9 @@ def suggest_transfer_plan(
     Stops when no remaining transfer has positive net gain after its hit cost, or
     `max_transfers` is reached. Transfers beyond `free_transfers` are charged TRANSFER_HIT_COST.
 
-    Returns (plan_df, remaining_bank_after_the_plan).
+    Returns (plan_df, resulting_squad_df, remaining_bank_after_the_plan) - resulting_squad_df
+    is the actual post-transfer 15 (same columns as the input `squad`), for callers that need
+    to keep simulating forward (e.g. src.validation.backtest), not just display the plan.
     """
     working_squad = squad.copy()
     working_bank = bank
@@ -161,4 +163,4 @@ def suggest_transfer_plan(
     plan_df = pd.DataFrame(plan) if plan else pd.DataFrame(
         columns=["transfer_num", "sell", "buy", "gain", "hit", "net", "free_transfer_used"]
     )
-    return plan_df, working_bank
+    return plan_df, working_squad.reset_index(drop=True), working_bank
