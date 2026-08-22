@@ -60,21 +60,25 @@ predictor.** The minutes model (R²=0.636) is still kept for rotation-risk flagg
 a multiplicative input to points prediction. See `notebooks/06_model_comparison.ipynb` for the
 full comparison.
 
-**Phase 3 — MVP dashboard** (partially complete — built after Phase 4, so it has real
-predictions to show, not just descriptive stats)
+**Phase 3 — MVP dashboard** (complete — built after Phase 4, so it has real predictions to
+show, not just descriptive stats)
 
+- [x] My Squad — your real GW picks (`FPL_ENTRY_ID` in `.env`), starting XI vs bench, projected
+      points, and a model-vs-your-pick captain comparison
 - [x] Player rankings, filterable by position, sorted by predicted next-gameweek points
-      (`dashboard/app.py`)
 - [x] Fixture planner (each team's next fixture, ranked by the v1 Fixture Difficulty Score)
 - [x] Transfer targets (predicted points per £m, with an ownership-% filter for differentials)
-- [ ] Squad view / actual transfer-in-out comparisons — needs your FPL entry ID hooked up, not
-      built yet
-- [ ] Captain recommendations — straightforward to add once squad view exists
 
 Live inference (`src/features/live_features.py`, `src/models/predict_live.py`) applies the
 Phase 4 model to our own current-season data — not the historical training data — to generate
-real per-gameweek predictions, stored in a `predictions` table. Run `python -m
-src.models.predict_live` after each ingestion to refresh predictions for the next gameweek.
+real per-gameweek predictions, stored in a `predictions` table. Squad data comes from
+`src/ingestion/load_manager.py` (FPL's `entry/{id}/` and `entry/{id}/event/{gw}/picks/`
+endpoints). Run both after each ingestion to refresh:
+
+```
+python -m src.ingestion.load_manager
+python -m src.models.predict_live
+```
 
 Run the dashboard: `streamlit run dashboard/app.py`
 

@@ -52,6 +52,14 @@ class FPLClient:
         """Per-player stats + point breakdown ('explain') for one gameweek."""
         return self._get(f"event/{event_id}/live/")
 
+    def get_entry(self, entry_id: int) -> dict:
+        """A manager's own profile (name, overall points/rank, favourite team)."""
+        return self._get(f"entry/{entry_id}/")
+
+    def get_entry_picks(self, entry_id: int, event_id: int) -> dict:
+        """A manager's squad picks for one gameweek: starting XI, bench, captain/vice, chip used."""
+        return self._get(f"entry/{entry_id}/event/{event_id}/picks/")
+
     def get_element_summary(self, player_id: int) -> dict:
         """One player's full gameweek history + upcoming fixtures. Not used in Phase 1's
         bulk pull (bootstrap-static + event/live cover the same ground for all players at

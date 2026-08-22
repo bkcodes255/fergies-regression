@@ -11,3 +11,5 @@ load_dotenv(REPO_ROOT / ".env")
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 SEASON = os.environ.get("FPL_SEASON", "2026-27")
+_entry_id = os.environ.get("FPL_ENTRY_ID")
+ENTRY_ID = int(_entry_id) if _entry_id else None

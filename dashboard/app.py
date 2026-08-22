@@ -70,6 +70,49 @@ def load_fixture_difficulty(season: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
+def load_squad(season: str, entry_id: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Returns (squad_df, manager_gw_df) for the entry's most recent ingested gameweek."""
+    conn = get_connection()
+    manager_gw = pd.read_sql_query(
+        """
+        SELECT * FROM manager_gameweeks
+        WHERE entry_id = %(entry_id)s AND season = %(season)s
+        ORDER BY event_id DESC LIMIT 1
+        """,
+        conn, params={"entry_id": entry_id, "season": season},
+    )
+    squad = pd.read_sql_query(
+        """
+        SELECT
+            sp.squad_position, sp.multiplier, sp.is_captain, sp.is_vice_captain,
+            p.web_name, pos.element_type, t.short_name AS team, lp.now_cost,
+            pr.predicted_points
+        FROM squad_picks sp
+        JOIN players p ON p.player_code = sp.player_code
+        JOIN player_seasons pos ON pos.player_code = sp.player_code AND pos.season = sp.season
+        JOIN teams t ON t.team_code = pos.team_code
+        JOIN LATERAL (
+            SELECT now_cost FROM player_price_snapshots pps
+            WHERE pps.player_code = sp.player_code AND pps.season = sp.season
+            ORDER BY snapshot_date DESC LIMIT 1
+        ) lp ON true
+        LEFT JOIN predictions pr ON pr.player_code = sp.player_code AND pr.season = sp.season
+            AND pr.event_id = (SELECT MAX(event_id) FROM predictions WHERE season = sp.season)
+        WHERE sp.entry_id = %(entry_id)s AND sp.season = %(season)s
+            AND sp.event_id = (
+                SELECT MAX(event_id) FROM squad_picks WHERE entry_id = %(entry_id)s AND season = %(season)s
+            )
+        ORDER BY sp.squad_position
+        """,
+        conn, params={"entry_id": entry_id, "season": season},
+    )
+    position_names = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
+    squad["position"] = squad["element_type"].map(position_names)
+    squad["price"] = squad["now_cost"] / 10
+    return squad, manager_gw
+
+
+@st.cache_data(ttl=300)
 def load_last_ingested_gw(season: str) -> int | None:
     conn = get_connection()
     row = pd.read_sql_query(
@@ -99,7 +142,64 @@ if last_gw is not None and last_gw <= 2:
         "expected behavior, not a bug."
     )
 
-tab_rankings, tab_fixtures, tab_targets = st.tabs(["Player Rankings", "Fixture Planner", "Transfer Targets"])
+tab_names = ["Player Rankings", "Fixture Planner", "Transfer Targets"]
+if settings.ENTRY_ID:
+    tab_names.insert(0, "My Squad")
+tabs = st.tabs(tab_names)
+tab_lookup = dict(zip(tab_names, tabs))
+tab_rankings = tab_lookup["Player Rankings"]
+tab_fixtures = tab_lookup["Fixture Planner"]
+tab_targets = tab_lookup["Transfer Targets"]
+
+if settings.ENTRY_ID:
+    with tab_lookup["My Squad"]:
+        squad, manager_gw = load_squad(season, settings.ENTRY_ID)
+        if squad.empty:
+            st.warning("No squad data ingested yet. Run `python -m src.ingestion.load_manager` first.")
+        else:
+            gw_row = manager_gw.iloc[0] if not manager_gw.empty else None
+            if gw_row is not None:
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("GW points", int(gw_row["points"]))
+                c2.metric("Overall rank", f"{int(gw_row['overall_rank']):,}" if pd.notna(gw_row["overall_rank"]) else "—")
+                c3.metric("Team value", f"£{gw_row['team_value']/10:.1f}m")
+                c4.metric("Bank", f"£{gw_row['bank']/10:.1f}m")
+
+            starting = squad[squad["multiplier"] > 0].copy()
+            bench = squad[squad["multiplier"] == 0].copy()
+
+            projected_total = (starting["predicted_points"] * starting["multiplier"]).sum()
+            st.metric("Projected next-GW points (starting XI, with captain)", round(projected_total, 1))
+
+            best_captain_idx = starting["predicted_points"].idxmax() if not starting["predicted_points"].isna().all() else None
+            current_captain = starting[starting["is_captain"]]
+            if best_captain_idx is not None and not current_captain.empty:
+                best_captain_name = starting.loc[best_captain_idx, "web_name"]
+                current_captain_name = current_captain.iloc[0]["web_name"]
+                if best_captain_name != current_captain_name:
+                    st.warning(
+                        f"Model suggests **{best_captain_name}** as captain "
+                        f"(predicted {starting.loc[best_captain_idx, 'predicted_points']:.2f}) over your "
+                        f"current pick **{current_captain_name}** "
+                        f"(predicted {current_captain.iloc[0]['predicted_points']:.2f})."
+                    )
+                else:
+                    st.success(f"Your captain **{current_captain_name}** is also the model's top pick.")
+
+            def _format_squad(df: pd.DataFrame) -> pd.DataFrame:
+                labeled = df.copy()
+                labeled["role"] = labeled.apply(
+                    lambda r: "C" if r["is_captain"] else ("VC" if r["is_vice_captain"] else ""), axis=1
+                )
+                return labeled[["web_name", "position", "team", "price", "predicted_points", "role"]].rename(
+                    columns={"web_name": "Player", "position": "Pos", "team": "Team",
+                              "price": "Price (£m)", "predicted_points": "Predicted (next GW)", "role": ""}
+                )
+
+            st.markdown("**Starting XI**")
+            st.dataframe(_format_squad(starting), use_container_width=True, hide_index=True)
+            st.markdown("**Bench**")
+            st.dataframe(_format_squad(bench), use_container_width=True, hide_index=True)
 
 with tab_rankings:
     st.subheader("Player rankings")
@@ -160,7 +260,8 @@ with tab_targets:
 
 st.divider()
 st.caption(
-    "Squad view and transfer-in/out comparisons against an actual squad need your FPL entry "
-    "ID hooked up — not built yet. Predictions come from a Random Forest model trained on 3 "
-    "historical seasons; see notebooks/06_model_comparison.ipynb for backtested accuracy."
+    "Predictions come from a Random Forest model trained on 3 historical seasons; see "
+    "notebooks/06_model_comparison.ipynb for backtested accuracy. Squad optimization / "
+    "auto-substitution and full transfer-in-out comparisons are Phase 5 (decision engine), "
+    "not built yet."
 )
