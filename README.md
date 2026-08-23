@@ -270,6 +270,38 @@ Two real bugs caught and fixed while wiring this in, not just the intended featu
    transaction" for hours between reruns — this is what silently blocked an unrelated schema
    migration earlier the same session. Fixed at the source in `get_connection()`.
 
+**Phase 7 — Quantile regression + Monte Carlo simulation** (2026-08-22, in progress — floor/
+ceiling piece complete, injury-signal audit and LLM explanations not started)
+
+`src/models/train_quantile_models.py` trains real floor (10th pct) / median (50th pct) /
+ceiling (90th pct) models via `GradientBoostingRegressor(loss="quantile")` — not a simulated
+spread from one point-estimate model's tree variance, which would reflect model *disagreement*
+rather than true outcome variance. **Real finding while validating**: the naive calibration
+check ("fraction of actual outcomes below the predicted quantile") looked badly wrong for
+floor/median (63.3%/71.5% vs 10%/50% targets) — root-caused rather than blindly retrained
+against: ~63% of all rows are exactly 0 points, so any near-zero floor prediction trivially
+satisfies the check via ties on that whole majority. Conditioning on nailed-on starters only
+(where blanking is genuinely rare) shows the real picture: floor calibrates to 13.0% (close),
+median to 37.7% (a real, milder issue — runs a bit conservative for established starters).
+Fixed the diagnostic itself so future retrains report the honest number.
+
+`src/models/monte_carlo.py` samples each player's points via piecewise-linear inverse-CDF
+through their floor/median/ceiling — flat lower tail (no information below the floor, avoids
+implausible negative scores), but the upper tail deliberately extrapolates past ceiling rather
+than capping there, since real FPL hauls (20+) are rare-but-real and capping would understate
+exactly the upside this exists to surface. **Known simplification, stated plainly**: players
+are sampled independently — real outcomes correlate within a team and across a fixture, so the
+squad-level spread is somewhat tighter than reality. Verified: simulating Brian's actual squad
+centers on ~23–24 points, matching his real GW1 score (24) almost exactly — good face validity
+from one data point, to be re-checked as more gameweeks accumulate.
+
+Dashboard: Player Rankings gets a Floor–Ceiling range column; My Squad gets a Monte Carlo
+section with real percentile stats and a histogram of 10,000 simulated starting-XI outcomes.
+See `notebooks/10_haul_classifier.ipynb` and `notebooks/11_monte_carlo.ipynb` for the full
+writeups. Not started: injury/news signal (FPL's own `news`/`chance_of_playing_next_round`
+fields are already ingested but barely used beyond a binary status filter) and LLM-generated
+explanations (needs an API key/cost decision first).
+
 ## Build phases
 
 1. **Foundation** — FPL API client, raw snapshots, Postgres schema, manual ingestion
