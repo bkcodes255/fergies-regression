@@ -125,10 +125,17 @@ def evaluate_feature_subset(
     baseline_col: str = "season_points_baseline",
     sample_frac: float | None = None,
     compute_extended: bool = False,
+    train_seasons: list[str] | None = None,
+    test_season: str | None = None,
 ) -> dict[str, dict]:
-    """Fits baseline/linear_regression/random_forest/xgboost on TRAIN_SEASONS, scores on
-    TEST_SEASON - the exact split train.py uses, so results are directly comparable to the
-    deployed model's numbers. Purely in-memory: no joblib.dump, no DB writes (the caller decides
+    """Fits baseline/linear_regression/random_forest/xgboost on train_seasons, scores on
+    test_season. Defaults to TRAIN_SEASONS/TEST_SEASON - the exact split train.py uses, so
+    results are directly comparable to the deployed model's numbers. The override params exist
+    for backward_elimination.py's internal validation split (train on an earlier subset of
+    seasons, validate on a held-back training season) - repeatedly scoring many feature subsets
+    against the real TEST_SEASON and keeping whichever looks best would itself be a form of
+    overfitting to that one season's noise. Purely in-memory: no joblib.dump, no DB writes (the
+    caller decides
     whether/how to persist a ledger row).
 
     Returns {
@@ -147,8 +154,10 @@ def evaluate_feature_subset(
         } for each of MODEL_TYPES
     }
     """
-    train_df = df[df["season"].isin(TRAIN_SEASONS) & (df["gw_number"] > 1)].dropna(subset=[target_col])
-    test_df = df[(df["season"] == TEST_SEASON) & (df["gw_number"] > 1)].dropna(subset=[target_col])
+    train_seasons = train_seasons or TRAIN_SEASONS
+    test_season = test_season or TEST_SEASON
+    train_df = df[df["season"].isin(train_seasons) & (df["gw_number"] > 1)].dropna(subset=[target_col])
+    test_df = df[(df["season"] == test_season) & (df["gw_number"] > 1)].dropna(subset=[target_col])
     if sample_frac is not None:
         train_df = train_df.sample(frac=sample_frac, random_state=42)
 
