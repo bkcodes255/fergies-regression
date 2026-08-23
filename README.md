@@ -239,6 +239,37 @@ projection.
       fixture data only 2026/27 has) — this backtest is single-gameweek-horizon, like the live
       dashboard's default.
 
+**Phase 6.5 — Haul-blindness fix** (2026-08-22, complete)
+
+Brian picked this over jumping to Phase 7. Tested the "haul-specific feature set" direction
+first: added `threat_roll{3,5}` / `creativity_roll{3,5}` (FPL's own attacking sub-indices,
+already summed into `ict_index` but never exposed separately) to probe whether more granular
+signal helped. Honest result — it didn't: R² unchanged (0.320 → 0.320), confirming the
+regressor's problem is the squared-error objective on a skewed target, not missing features.
+
+Built the other flagged direction instead: `src/models/train_haul_classifier.py` trains
+classifiers for `P(points≥6)` and `P(points≥10)` — a different, answerable question — using
+the same feature set and train/test split as the regressor. Compared baseline/logistic
+regression/Random Forest/XGBoost; **XGBoost selected by Brier score (calibration), not
+ROC-AUC** — RF/logistic used `class_weight="balanced"` for better class separation, but at a
+real calibration cost (Brier 0.15–0.16) that would make a displayed "23% chance" not actually
+mean 1-in-5; XGBoost trained on the natural class imbalance stayed well-calibrated (Brier
+0.02–0.06) with equal-or-better ROC-AUC (~0.85–0.86 both thresholds) anyway. `predict_live.py`
+now scores both classifiers alongside the point-estimate regressor, stored as
+`p_return_6plus`/`p_haul_10plus` in `predictions`. Dashboard shows this as a **Ceiling %**
+column and a differential-captain suggestion alongside the existing expected-points one — the
+safe-pick-vs-upside-pick framing the plan's Risk Model section wanted, now real.
+
+Two real bugs caught and fixed while wiring this in, not just the intended feature:
+1. `predictions` had never cleaned up superseded rows from old `model_id`s (the table's PK
+   includes `model_id`, so `ON CONFLICT` never touched them) — 1804 stale rows had
+   accumulated, and Postgres's DESC-sorts-NULL-first default meant a naive query surfaced only
+   pre-classifier NULL rows as the "top" results. `predict_live.py` now deletes existing rows
+   for the gameweek before inserting fresh ones.
+2. The dashboard's cached DB connection never called `autocommit = True`, so it sat "idle in
+   transaction" for hours between reruns — this is what silently blocked an unrelated schema
+   migration earlier the same session. Fixed at the source in `get_connection()`.
+
 ## Build phases
 
 1. **Foundation** — FPL API client, raw snapshots, Postgres schema, manual ingestion
