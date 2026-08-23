@@ -178,6 +178,8 @@ CREATE TABLE model_versions (
     mae                  NUMERIC(8,4),
     rmse                 NUMERIC(8,4),
     r2                   NUMERIC(8,4),
+    roc_auc              NUMERIC(6,4),        -- classifier rows only (e.g. target='haul_10plus')
+    brier_score          NUMERIC(6,4),        -- classifier rows only - calibration, lower is better
     artifact_path        TEXT,                -- where the serialized model lives (models/, gitignored)
     trained_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -230,6 +232,8 @@ CREATE TABLE predictions (
     player_code          INTEGER NOT NULL REFERENCES players(player_code),
     model_id             BIGINT NOT NULL REFERENCES model_versions(model_id),
     predicted_points     NUMERIC(6,3) NOT NULL,
+    p_return_6plus       NUMERIC(5,4),        -- P(actual points >= 6), from the haul classifier
+    p_haul_10plus        NUMERIC(5,4),        -- P(actual points >= 10) - the "ceiling" signal
     predicted_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (season, event_id, player_code, model_id)
 );

@@ -25,7 +25,13 @@ st.set_page_config(page_title="Fergie's Regression", layout="wide")
 
 @st.cache_resource
 def get_connection():
-    return psycopg2.connect(settings.DATABASE_URL)
+    # autocommit=True is what matters here: without it, psycopg2 opens a transaction on the
+    # first query and this cached, long-lived connection sits "idle in transaction" between
+    # Streamlit reruns - for hours, in practice - holding locks that block unrelated schema
+    # migrations elsewhere. This dashboard only ever reads, so there's nothing to commit anyway.
+    conn = psycopg2.connect(settings.DATABASE_URL)
+    conn.autocommit = True
+    return conn
 
 
 @st.cache_data(ttl=300)
@@ -37,7 +43,8 @@ def load_player_rankings(season: str) -> pd.DataFrame:
             st.player_code, p.web_name, pos.element_type, t.short_name AS team,
             st.now_cost, st.total_points, st.games_played, st.points_per_90,
             st.points_per_million, st.selected_by_percent, st.status,
-            pr.predicted_points, pr.event_id AS predicted_gw
+            pr.predicted_points, pr.event_id AS predicted_gw,
+            pr.p_return_6plus, pr.p_haul_10plus
         FROM v_player_season_totals st
         JOIN players p ON p.player_code = st.player_code
         JOIN player_seasons pos ON pos.player_code = st.player_code AND pos.season = st.season
@@ -113,7 +120,7 @@ def load_squad(season: str, entry_id: int) -> tuple[pd.DataFrame, pd.DataFrame]:
         SELECT
             sp.player_code, sp.squad_position, sp.multiplier, sp.is_captain, sp.is_vice_captain,
             p.web_name, pos.element_type, t.short_name AS team, lp.now_cost,
-            pr.predicted_points
+            pr.predicted_points, pr.p_haul_10plus
         FROM squad_picks sp
         JOIN players p ON p.player_code = sp.player_code
         JOIN player_seasons pos ON pos.player_code = sp.player_code AND pos.season = sp.season
@@ -230,15 +237,31 @@ if settings.ENTRY_ID:
                 else:
                     st.success(f"Your captain **{current_captain_name}** is also the model's top pick.")
 
+            best_ceiling_idx = (
+                starting["p_haul_10plus"].idxmax() if not starting["p_haul_10plus"].isna().all() else None
+            )
+            if (
+                best_ceiling_idx is not None and not current_captain.empty
+                and starting.loc[best_ceiling_idx, "web_name"] != current_captain.iloc[0]["web_name"]
+            ):
+                st.info(
+                    f"Highest-ceiling option in your XI: **{starting.loc[best_ceiling_idx, 'web_name']}** "
+                    f"({starting.loc[best_ceiling_idx, 'p_haul_10plus']:.0%} chance of 10+ points) - "
+                    "worth considering as a differential captain pick if you're chasing rank rather "
+                    "than protecting it. The expected-points suggestion above is the safer play."
+                )
+
             def _format_squad(df: pd.DataFrame) -> pd.DataFrame:
                 labeled = df.copy()
                 labeled["role"] = labeled.apply(
                     lambda r: "C" if r["is_captain"] else ("VC" if r["is_vice_captain"] else ""), axis=1
                 )
-                return labeled[["web_name", "position", "team", "price", "predicted_points", "role"]].rename(
-                    columns={"web_name": "Player", "position": "Pos", "team": "Team",
-                              "price": "Price (£m)", "predicted_points": "Predicted (next GW)", "role": ""}
-                )
+                return labeled[
+                    ["web_name", "position", "team", "price", "predicted_points", "p_haul_10plus", "role"]
+                ].rename(columns={
+                    "web_name": "Player", "position": "Pos", "team": "Team", "price": "Price (£m)",
+                    "predicted_points": "Predicted (next GW)", "p_haul_10plus": "Ceiling %", "role": "",
+                })
 
             st.markdown("**Starting XI**")
             st.dataframe(_format_squad(starting), use_container_width=True, hide_index=True)
@@ -324,14 +347,21 @@ with tab_rankings:
         view = view[view["position"] == pos_filter]
     view = view[view["total_points"].notna()]
 
+    st.caption(
+        "**Ceiling %** = P(10+ points next GW), from a separate haul-probability classifier "
+        "(ROC-AUC ~0.85 on held-out backtesting) - not derived from Predicted points. The point "
+        "estimate alone is haul-blind (see notebooks/09_error_analysis.ipynb): it hedges toward "
+        "the mean on big scores, so Ceiling % is what actually surfaces differential/captaincy "
+        "upside, e.g. a modest point estimate with a disproportionately high ceiling."
+    )
     st.dataframe(
         view.sort_values("predicted_points", ascending=False, na_position="last")[
-            ["web_name", "position", "team", "price", "predicted_points",
+            ["web_name", "position", "team", "price", "predicted_points", "p_haul_10plus",
              "total_points", "points_per_90", "points_per_million", "selected_by_percent", "status"]
         ].rename(columns={
             "web_name": "Player", "position": "Pos", "team": "Team", "price": "Price (£m)",
-            "predicted_points": "Predicted (next GW)", "total_points": "Total pts",
-            "points_per_90": "Pts/90", "points_per_million": "Pts/£m",
+            "predicted_points": "Predicted (next GW)", "p_haul_10plus": "Ceiling %",
+            "total_points": "Total pts", "points_per_90": "Pts/90", "points_per_million": "Pts/£m",
             "selected_by_percent": "Owned %", "status": "Status",
         }),
         use_container_width=True, height=500,

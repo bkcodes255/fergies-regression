@@ -152,6 +152,13 @@ def _engineer_group(g: pd.DataFrame) -> pd.DataFrame:
         g[f"minutes_roll{window}"] = _prior_rolling(g["minutes"], window, "mean")
         g[f"bps_roll{window}"] = _prior_rolling(g["bps"], window, "mean")
         g[f"ict_index_roll{window}"] = _prior_rolling(g["ict_index"], window, "mean")
+        # threat/creativity are FPL's own attacking sub-indices, already summed into
+        # ict_index but never exposed separately before - added specifically to probe the
+        # "haul-blindness" finding (see notebooks/09_error_analysis.ipynb): a rising shot/
+        # chance-creation trend is a plausible precursor to a big score that a blended index
+        # or a pure past-points average wouldn't isolate on its own.
+        g[f"threat_roll{window}"] = _prior_rolling(g["threat"], window, "mean")
+        g[f"creativity_roll{window}"] = _prior_rolling(g["creativity"], window, "mean")
         g[f"dc_roll{window}"] = _prior_rolling(g["defensive_contribution"], window, "mean")
         g[f"starts_rate_roll{window}"] = _prior_rolling(g["starts"], window, "mean")
 
@@ -214,7 +221,7 @@ FEATURE_COLS = [
     "had_prior_season", "prev_season_points_per90", "prev_season_minutes_avg", "prev_season_total_points",
 ] + [f"{stat}_roll{w}" for w in ROLLING_WINDOWS for stat in (
     "points_per90", "goals_per90", "assists_per90", "xg_per90", "xa_per90",
-    "xgc_per90", "minutes", "bps", "ict_index", "dc", "starts_rate",
+    "xgc_per90", "minutes", "bps", "ict_index", "dc", "starts_rate", "threat", "creativity",
 )]
 
 
