@@ -181,7 +181,14 @@ CREATE TABLE model_versions (
     roc_auc              NUMERIC(6,4),        -- classifier rows only (e.g. target='haul_10plus')
     brier_score          NUMERIC(6,4),        -- classifier rows only - calibration, lower is better
     artifact_path        TEXT,                -- where the serialized model lives (models/, gitignored)
-    trained_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+    trained_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    is_experiment         BOOLEAN NOT NULL DEFAULT false,  -- Model Lab dashboard tab run, not a
+    -- real training-pipeline candidate. Already structurally excluded from live serving by
+    -- artifact_path IS NULL (predict_live.get_best_model requires artifact_path IS NOT NULL),
+    -- but this flag makes that intent explicit and queryable rather than implicit.
+    diagnostics            JSONB               -- Model Lab only: train-set metrics, overfit gap,
+    -- bootstrap R² CI, paired-bootstrap p-value vs. session baseline, and (model-type specific)
+    -- OLS coefficient p-values or permutation importance. See src/models/experiment.py.
 );
 
 -- Your actual FPL team (Phase 3+). One manager (entry) tracked for now - this schema doesn't

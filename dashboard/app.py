@@ -5,6 +5,7 @@ Run with:
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -17,7 +18,11 @@ import psycopg2
 import streamlit as st
 
 from config import settings
+from src.features.historical_features import FEATURE_COLS as ALL_HISTORICAL_FEATURE_COLS
+from src.features.historical_features import build_training_frame
+from src.models.experiment import MODEL_TYPES, evaluate_feature_subset, paired_bootstrap_p_value
 from src.models.monte_carlo import simulate_squad, summarize_simulation
+from src.models.train import TEST_SEASON, TRAIN_SEASONS, direct_points_baseline
 from src.recommendations.horizon import DEFAULT_HORIZON, compute_horizon_points, load_fixture_window
 from src.recommendations.squad_builder import build_optimal_squad
 from src.recommendations.squad_optimizer import best_starting_xi
@@ -173,6 +178,51 @@ def load_last_ingested_gw(season: str) -> int | None:
     return None if row["gw"].isna().all() else int(row["gw"].iloc[0])
 
 
+@st.cache_data(ttl=3600, show_spinner="Loading and engineering historical training data (first load only)...")
+def load_model_lab_frame() -> tuple[pd.DataFrame, list[str]]:
+    """The same historical training frame train.py fits on, cached for the session - this is
+    the ~75s expensive part (load 6 seasons of CSVs + engineer every rolling/fixture feature),
+    so every Model Lab "Run experiment" click only pays for re-fitting models, not
+    re-engineering features."""
+    df = build_training_frame()
+    df["season_points_baseline"] = direct_points_baseline(df)
+    pos_cols = [c for c in df.columns if c.startswith("pos_")]
+    return df, ALL_HISTORICAL_FEATURE_COLS + pos_cols
+
+
+@st.cache_data(ttl=3600)
+def load_deployed_baseline_results(_df: pd.DataFrame, all_features: list[str]) -> dict:
+    """The 'all features' reference run, computed once per session - every experiment's paired
+    significance test compares against this same fixed baseline. _df is excluded from
+    Streamlit's cache key (leading underscore) since hashing the full training frame on every
+    call would be slower than just re-running; all_features (small, hashable) is what actually
+    varies this result."""
+    return evaluate_feature_subset(_df, all_features, compute_extended=False)
+
+
+def group_features(all_features: list[str]) -> dict[str, list[str]]:
+    """Groups the ~45 model input columns for the Model Lab checkbox UI. Built from explicit
+    membership + _roll3/_roll5 suffix matching (not a hardcoded full list) so it stays correct
+    if FEATURE_COLS in historical_features.py grows - anything unmatched lands in "Other"
+    rather than silently vanishing from the UI."""
+    groups = {
+        "Price & data flags": [c for c in all_features if c in ("price", "dc_data_available", "xg_data_available")],
+        "Season-to-date": [c for c in all_features if c in ("season_points_per90_avg", "season_minutes_avg")],
+        "Prior season": [c for c in all_features if c == "had_prior_season" or c.startswith("prev_season_")],
+        "Fixture & opponent strength": [c for c in all_features if c in (
+            "was_home", "own_attack_form", "own_defense_form", "opp_attack_form", "opp_defense_form"
+        )],
+        "Rolling form (3 GW)": [c for c in all_features if c.endswith("_roll3")],
+        "Rolling form (5 GW)": [c for c in all_features if c.endswith("_roll5")],
+        "Position": [c for c in all_features if c.startswith("pos_")],
+    }
+    grouped = {c for cols in groups.values() for c in cols}
+    other = [c for c in all_features if c not in grouped]
+    if other:
+        groups["Other"] = other
+    return groups
+
+
 season = settings.SEASON
 st.title("Fergie's Regression")
 st.caption("An FPL Analytics Report")
@@ -194,7 +244,7 @@ if last_gw is not None and last_gw <= 2:
         "expected behavior, not a bug."
     )
 
-tab_names = ["Player Rankings", "Fixture Planner", "Transfer Targets", "Optimal Squad"]
+tab_names = ["Player Rankings", "Fixture Planner", "Transfer Targets", "Optimal Squad", "Model Lab"]
 if settings.ENTRY_ID:
     tab_names.insert(0, "My Squad")
 tabs = st.tabs(tab_names)
@@ -203,6 +253,7 @@ tab_rankings = tab_lookup["Player Rankings"]
 tab_fixtures = tab_lookup["Fixture Planner"]
 tab_targets = tab_lookup["Transfer Targets"]
 tab_optimal = tab_lookup["Optimal Squad"]
+tab_model_lab = tab_lookup["Model Lab"]
 
 if settings.ENTRY_ID:
     with tab_lookup["My Squad"]:
@@ -502,6 +553,204 @@ with tab_optimal:
                 f"from-scratch squad at the same £{budget:.1f}m budget projects to "
                 f"**{opt_objective:.2f}** (captained)."
             )
+
+with tab_model_lab:
+    st.subheader("Model Lab")
+    st.caption(
+        "Exploratory only. Toggle which input features go into Linear Regression / Random "
+        "Forest / XGBoost, retrain on the exact same 2020-21..2024-25 train / 2025-26 held-out "
+        "split the deployed model uses, and see the real effect on accuracy. Every run logs a "
+        "row to `model_versions` (`is_experiment=true`, no artifact saved) so nothing here can "
+        "ever be picked up as the live model, but the record persists across sessions."
+    )
+
+    lab_df, all_features = load_model_lab_frame()
+    feature_groups = group_features(all_features)
+
+    with st.expander("Feature correlation map", expanded=False):
+        numeric_features = [c for c in all_features if not c.startswith("pos_")]
+        corr = lab_df[numeric_features].corr()
+        fig, ax = plt.subplots(figsize=(11, 9))
+        im = ax.imshow(corr, cmap="RdBu_r", vmin=-1, vmax=1)
+        ax.set_xticks(range(len(numeric_features)))
+        ax.set_xticklabels(numeric_features, rotation=90, fontsize=6)
+        ax.set_yticks(range(len(numeric_features)))
+        ax.set_yticklabels(numeric_features, fontsize=6)
+        fig.colorbar(im, ax=ax, shrink=0.8, label="Pearson correlation")
+        st.pyplot(fig)
+        st.caption(
+            "Feature-to-feature correlation, computed once on the cached training frame - a "
+            "map of redundancy worth a glance before deciding what to toggle below."
+        )
+
+    st.markdown("**Select features**")
+    selected: list[str] = []
+    group_cols_layout = st.columns(2)
+    for i, (group_name, cols) in enumerate(feature_groups.items()):
+        with group_cols_layout[i % 2]:
+            with st.expander(f"{group_name} ({len(cols)})", expanded=(group_name == "Fixture & opponent strength")):
+                btn_a, btn_b = st.columns(2)
+                if btn_a.button("All", key=f"ml_all_{group_name}"):
+                    for c in cols:
+                        st.session_state[f"ml_feat_{c}"] = True
+                if btn_b.button("None", key=f"ml_none_{group_name}"):
+                    for c in cols:
+                        st.session_state[f"ml_feat_{c}"] = False
+                for c in cols:
+                    checked = st.checkbox(c, value=st.session_state.get(f"ml_feat_{c}", True), key=f"ml_feat_{c}")
+                    if checked:
+                        selected.append(c)
+
+    st.caption(f"**{len(selected)} of {len(all_features)}** features selected")
+
+    opt_a, opt_b = st.columns(2)
+    fast_preview = opt_a.checkbox("Fast preview (25% training sample)", value=False, key="ml_fast_preview")
+    extended = opt_b.checkbox(
+        "Compute extended diagnostics (OLS p-values / permutation importance — slower)",
+        value=False, key="ml_extended",
+    )
+
+    run_clicked = st.button("Run experiment", type="primary", disabled=(len(selected) == 0))
+    if len(selected) == 0:
+        st.warning("Select at least one feature to run an experiment.")
+
+    if run_clicked:
+        with st.spinner(f"Training on {len(selected)} features..."):
+            results = evaluate_feature_subset(
+                lab_df, selected, sample_frac=0.25 if fast_preview else None, compute_extended=extended,
+            )
+            baseline_results = load_deployed_baseline_results(lab_df, all_features)
+
+        y_test = results["_y_test"]
+
+        p_values_by_model: dict[str, float] = {}
+        for model_type in MODEL_TYPES:
+            if model_type == "baseline":
+                continue
+            p_values_by_model[model_type] = paired_bootstrap_p_value(
+                y_test, baseline_results[model_type]["y_test_pred"], results[model_type]["y_test_pred"],
+            )
+
+        conn = get_connection()
+        with conn.cursor() as cur:
+            for model_type in MODEL_TYPES:
+                res = results[model_type]
+                tm = res["test_metrics"]
+                diagnostics = {
+                    "train_metrics": res["train_metrics"],
+                    "overfit_gap": res["overfit_gap"],
+                    "r2_ci_95": list(res["r2_ci"]),
+                    "fast_preview": fast_preview,
+                }
+                if model_type in p_values_by_model:
+                    diagnostics["p_value_vs_session_baseline"] = p_values_by_model[model_type]
+                if res["extended"] is not None:
+                    diagnostics["extended"] = res["extended"]
+                cur.execute(
+                    """
+                    INSERT INTO model_versions (
+                        model_type, target, training_seasons, test_season, features,
+                        hyperparameters, mae, rmse, r2, artifact_path, is_experiment, diagnostics
+                    ) VALUES (%s, 'total_points_direct', %s, %s, %s, NULL, %s, %s, %s, NULL, true, %s)
+                    """,
+                    (
+                        model_type, TRAIN_SEASONS, TEST_SEASON, json.dumps(selected),
+                        tm["mae"], tm["rmse"], tm["r2"], json.dumps(diagnostics),
+                    ),
+                )
+        conn.commit()
+        st.success(f"Logged {len(MODEL_TYPES)} rows to model_versions (is_experiment=true).")
+
+        rows = []
+        for model_type in MODEL_TYPES:
+            res = results[model_type]
+            tm = res["test_metrics"]
+            base_r2 = baseline_results[model_type]["test_metrics"]["r2"]
+            fit_flag = "—"
+            if model_type != "baseline":
+                if res["overfit_gap"] is not None and res["overfit_gap"] > 0.15:
+                    fit_flag = "⚠️ possible overfit"
+                elif tm["r2"] <= results["baseline"]["test_metrics"]["r2"]:
+                    fit_flag = "⚠️ possible underfit"
+                else:
+                    fit_flag = "OK"
+            rows.append({
+                "Model": model_type,
+                "Test R²": tm["r2"],
+                "Δ vs full feature set": round(tm["r2"] - base_r2, 4) if model_type != "baseline" else None,
+                "Test MAE": tm["mae"],
+                "Test RMSE": tm["rmse"],
+                "Train R²": res["train_metrics"]["r2"] if res["train_metrics"] else None,
+                "Overfit gap": res["overfit_gap"],
+                "Fit": fit_flag,
+                "95% CI (R²)": f"[{res['r2_ci'][0]:.3f}, {res['r2_ci'][1]:.3f}]",
+                "p vs. session baseline": (
+                    round(p_values_by_model[model_type], 4) if model_type in p_values_by_model else None
+                ),
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.caption(
+            "Δ and p-value are both vs. a fixed 'all features' reference run computed once per "
+            "session — not an older ledger row. Fit flags are rules of thumb (overfit gap > "
+            "0.15 R², or underfit = at/below the naive baseline), not a formal test."
+        )
+
+        importance_cols = st.columns(2)
+        for idx, model_type in enumerate(("random_forest", "xgboost")):
+            model = results[model_type]["model"]
+            with importance_cols[idx]:
+                st.markdown(f"**{model_type} feature importance**")
+                imp = pd.Series(model.feature_importances_, index=selected).sort_values(ascending=False).head(15)
+                fig, ax = plt.subplots(figsize=(5, 4))
+                ax.barh(imp.index[::-1], imp.values[::-1])
+                ax.set_xlabel("Importance")
+                st.pyplot(fig)
+
+        if extended:
+            st.markdown("**Extended diagnostics**")
+            ols = results["linear_regression"]["extended"]
+            if ols:
+                st.caption(f"OLS overall F-test p-value: {ols['f_pvalue']:.2e}")
+                ols_df = pd.DataFrame([
+                    {"feature": name, **vals} for name, vals in ols["coefficients"].items() if name != "const"
+                ]).sort_values("p_value")
+                st.dataframe(ols_df, use_container_width=True, hide_index=True, height=300)
+            for model_type in ("random_forest", "xgboost"):
+                perm = results[model_type]["extended"]
+                if perm:
+                    st.markdown(f"**{model_type} permutation importance (mean ± std)**")
+                    perm_df = pd.DataFrame([
+                        {"feature": name, **vals} for name, vals in perm.items()
+                    ]).sort_values("importance_mean", ascending=False)
+                    st.dataframe(perm_df, use_container_width=True, hide_index=True, height=300)
+
+    st.markdown("**Experiment ledger**")
+    conn = get_connection()
+    ledger = pd.read_sql_query(
+        """
+        SELECT model_type, features, mae, rmse, r2, diagnostics, trained_at
+        FROM model_versions
+        WHERE is_experiment AND target = 'total_points_direct'
+        ORDER BY trained_at DESC
+        LIMIT 50
+        """,
+        conn,
+    )
+    if ledger.empty:
+        st.caption("No experiments logged yet — run one above.")
+    else:
+        ledger["feature_count"] = ledger["features"].apply(len)
+        ledger["overfit_gap"] = ledger["diagnostics"].apply(
+            lambda d: d.get("overfit_gap") if isinstance(d, dict) else None
+        )
+        st.dataframe(
+            ledger[["trained_at", "model_type", "feature_count", "r2", "mae", "rmse", "overfit_gap"]],
+            use_container_width=True, hide_index=True, height=400,
+        )
+        st.caption(
+            "Every past Model Lab run, this session or an earlier one — queryable directly via "
+            "`SELECT * FROM model_versions WHERE is_experiment`."
+        )
 
 st.divider()
 st.caption(
