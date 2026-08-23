@@ -10,11 +10,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import psycopg2
 import streamlit as st
 
 from config import settings
+from src.models.monte_carlo import simulate_squad, summarize_simulation
 from src.recommendations.horizon import DEFAULT_HORIZON, compute_horizon_points, load_fixture_window
 from src.recommendations.squad_builder import build_optimal_squad
 from src.recommendations.squad_optimizer import best_starting_xi
@@ -44,7 +47,8 @@ def load_player_rankings(season: str) -> pd.DataFrame:
             st.now_cost, st.total_points, st.games_played, st.points_per_90,
             st.points_per_million, st.selected_by_percent, st.status,
             pr.predicted_points, pr.event_id AS predicted_gw,
-            pr.p_return_6plus, pr.p_haul_10plus
+            pr.p_return_6plus, pr.p_haul_10plus,
+            pr.floor_points, pr.median_points, pr.ceiling_points
         FROM v_player_season_totals st
         JOIN players p ON p.player_code = st.player_code
         JOIN player_seasons pos ON pos.player_code = st.player_code AND pos.season = st.season
@@ -120,7 +124,8 @@ def load_squad(season: str, entry_id: int) -> tuple[pd.DataFrame, pd.DataFrame]:
         SELECT
             sp.player_code, sp.squad_position, sp.multiplier, sp.is_captain, sp.is_vice_captain,
             p.web_name, pos.element_type, t.short_name AS team, lp.now_cost,
-            pr.predicted_points, pr.p_haul_10plus
+            pr.predicted_points, pr.p_haul_10plus,
+            pr.floor_points, pr.median_points, pr.ceiling_points
         FROM squad_picks sp
         JOIN players p ON p.player_code = sp.player_code
         JOIN player_seasons pos ON pos.player_code = sp.player_code AND pos.season = sp.season
@@ -269,6 +274,33 @@ if settings.ENTRY_ID:
             st.dataframe(_format_squad(bench), use_container_width=True, hide_index=True)
 
             st.divider()
+            st.subheader("Monte Carlo: range of outcomes for your starting XI")
+            st.caption(
+                "10,000 simulated gameweeks, sampling each starter's points independently from "
+                "their own floor/median/ceiling (quantile regression, not a guessed distribution "
+                "shape). **Known simplification**: players are sampled independently - real "
+                "outcomes correlate within a team and across a fixture, so the true spread is "
+                "somewhat wider than shown here on both ends."
+            )
+            sim_totals = simulate_squad(starting, n_samples=10000)
+            sim_stats = summarize_simulation(sim_totals)
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Median", f"{sim_stats['p50']:.1f}")
+            c2.metric("10th pct (bad week)", f"{sim_stats['p10']:.1f}")
+            c3.metric("90th pct (great week)", f"{sim_stats['p90']:.1f}")
+            c4.metric("P(80+ points)", f"{sim_stats['p_beat_80']:.1%}")
+
+            fig, ax = plt.subplots(figsize=(8, 4))
+            ax.hist(sim_totals, bins=50, color="#4C72B0", alpha=0.85)
+            for pct, label in [(10, "p10"), (50, "median"), (90, "p90")]:
+                ax.axvline(np.percentile(sim_totals, pct), color="black", linestyle="--", linewidth=1)
+            ax.set_xlabel("Simulated starting XI points (captain doubled)")
+            ax.set_ylabel("Simulations")
+            ax.set_title("Next-GW outcome distribution for your actual starting XI")
+            plt.tight_layout()
+            st.pyplot(fig)
+
+            st.divider()
             st.subheader("Recommended starting XI (auto-substitution)")
             st.caption(
                 "Best valid formation from your actual 15, maximizing predicted points. "
@@ -352,15 +384,25 @@ with tab_rankings:
         "(ROC-AUC ~0.85 on held-out backtesting) - not derived from Predicted points. The point "
         "estimate alone is haul-blind (see notebooks/09_error_analysis.ipynb): it hedges toward "
         "the mean on big scores, so Ceiling % is what actually surfaces differential/captaincy "
-        "upside, e.g. a modest point estimate with a disproportionately high ceiling."
+        "upside, e.g. a modest point estimate with a disproportionately high ceiling. "
+        "**Floor–Ceiling** is the 10th–90th percentile range from a separate quantile "
+        "regression pass (`notebooks/11_monte_carlo.ipynb`), giving a real spread rather than "
+        "a single number — a nailed starter and a rotation risk can share the same point "
+        "estimate while having very different floors."
+    )
+    view_display = view.copy()
+    view_display["range"] = view_display.apply(
+        lambda r: f"{r['floor_points']:.1f}–{r['ceiling_points']:.1f}"
+        if pd.notna(r["floor_points"]) and pd.notna(r["ceiling_points"]) else "—",
+        axis=1,
     )
     st.dataframe(
-        view.sort_values("predicted_points", ascending=False, na_position="last")[
-            ["web_name", "position", "team", "price", "predicted_points", "p_haul_10plus",
+        view_display.sort_values("predicted_points", ascending=False, na_position="last")[
+            ["web_name", "position", "team", "price", "predicted_points", "range", "p_haul_10plus",
              "total_points", "points_per_90", "points_per_million", "selected_by_percent", "status"]
         ].rename(columns={
             "web_name": "Player", "position": "Pos", "team": "Team", "price": "Price (£m)",
-            "predicted_points": "Predicted (next GW)", "p_haul_10plus": "Ceiling %",
+            "predicted_points": "Predicted (next GW)", "range": "Floor–Ceiling", "p_haul_10plus": "Ceiling %",
             "total_points": "Total pts", "points_per_90": "Pts/90", "points_per_million": "Pts/£m",
             "selected_by_percent": "Owned %", "status": "Status",
         }),

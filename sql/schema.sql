@@ -234,6 +234,10 @@ CREATE TABLE predictions (
     predicted_points     NUMERIC(6,3) NOT NULL,
     p_return_6plus       NUMERIC(5,4),        -- P(actual points >= 6), from the haul classifier
     p_haul_10plus        NUMERIC(5,4),        -- P(actual points >= 10) - the "ceiling" signal
+    floor_points         NUMERIC(6,3),        -- 10th percentile, quantile regression (Phase 7)
+    median_points        NUMERIC(6,3),        -- 50th percentile - distinct from predicted_points,
+                                               -- which is the regressor's mean-ish MSE estimate
+    ceiling_points       NUMERIC(6,3),        -- 90th percentile
     predicted_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (season, event_id, player_code, model_id)
 );

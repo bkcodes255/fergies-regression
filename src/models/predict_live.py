@@ -17,6 +17,7 @@ from src.ingestion.db import get_connection
 
 TARGET = "total_points_direct"
 HAUL_TARGETS = ["haul_6plus", "haul_10plus"]  # from src.models.train_haul_classifier
+QUANTILE_TARGETS = ["quantile_floor", "quantile_median", "quantile_ceiling"]  # from src.models.train_quantile_models
 
 
 def get_best_model(cur):
@@ -55,6 +56,22 @@ def get_best_classifier(cur, target: str):
     return cur.fetchone()
 
 
+def get_best_quantile_model(cur, target: str):
+    """Lowest pinball loss (stored in the `mae` column - see train_quantile_models.py) wins;
+    pinball loss is the proper scoring rule for a quantile prediction, unlike plain MAE."""
+    cur.execute(
+        """
+        SELECT model_id, model_type, features, artifact_path
+        FROM model_versions
+        WHERE target = %s AND artifact_path IS NOT NULL
+        ORDER BY mae ASC, trained_at DESC
+        LIMIT 1
+        """,
+        (target,),
+    )
+    return cur.fetchone()
+
+
 def _load_and_predict(conn, season, row):
     model_id, model_type, features_json, artifact_path = row
     feature_cols = json.loads(features_json) if isinstance(features_json, str) else features_json
@@ -70,6 +87,7 @@ def run() -> None:
         with conn.cursor() as cur:
             points_row = get_best_model(cur)
             haul_rows = {t: get_best_classifier(cur, t) for t in HAUL_TARGETS}
+            quantile_rows = {t: get_best_quantile_model(cur, t) for t in QUANTILE_TARGETS}
 
         points_model_id, points_model_type, meta, X, points_model = _load_and_predict(conn, season, points_row)
         print(f"Points model: model_id={points_model_id} ({points_model_type}), "
@@ -89,14 +107,36 @@ def run() -> None:
             probs = h_model.predict_proba(h_X)[:, 1]
             haul_probs[target] = dict(zip(h_meta["player_code"], probs))
 
+        quantile_preds = {}  # target -> {player_code: value}
+        for target, row in quantile_rows.items():
+            if row is None:
+                print(f"No trained quantile model found for {target} - run "
+                      f"`python -m src.models.train_quantile_models`. Skipping (column will be NULL).")
+                continue
+            model_id, model_type, q_meta, q_X, q_model = _load_and_predict(conn, season, row)
+            print(f"{target} model: model_id={model_id} ({model_type})")
+            vals = q_model.predict(q_X)
+            quantile_preds[target] = dict(zip(q_meta["player_code"], vals))
+
         rows = []
         for player_code, pred in zip(meta["player_code"], predicted_points):
             p6 = haul_probs.get("haul_6plus", {}).get(player_code)
             p10 = haul_probs.get("haul_10plus", {}).get(player_code)
+            floor_v = quantile_preds.get("quantile_floor", {}).get(player_code)
+            median_v = quantile_preds.get("quantile_median", {}).get(player_code)
+            ceiling_v = quantile_preds.get("quantile_ceiling", {}).get(player_code)
+            # enforce floor <= median <= ceiling at serve time - rare quantile crossing
+            # (independently-trained models, confirmed <0.2% of rows in backtesting) shouldn't
+            # ever reach a live display as a visibly nonsensical "floor higher than ceiling"
+            if floor_v is not None and median_v is not None and ceiling_v is not None:
+                floor_v, median_v, ceiling_v = sorted([floor_v, median_v, ceiling_v])
             rows.append((
                 season, next_gw, int(player_code), points_model_id, round(float(pred), 3),
                 round(float(p6), 4) if p6 is not None else None,
                 round(float(p10), 4) if p10 is not None else None,
+                round(float(floor_v), 3) if floor_v is not None else None,
+                round(float(median_v), 3) if median_v is not None else None,
+                round(float(ceiling_v), 3) if ceiling_v is not None else None,
             ))
 
         with conn:
@@ -118,13 +158,16 @@ def run() -> None:
                     """
                     INSERT INTO predictions (
                         season, event_id, player_code, model_id, predicted_points,
-                        p_return_6plus, p_haul_10plus
+                        p_return_6plus, p_haul_10plus, floor_points, median_points, ceiling_points
                     )
                     VALUES %s
                     ON CONFLICT (season, event_id, player_code, model_id) DO UPDATE SET
                         predicted_points = EXCLUDED.predicted_points,
                         p_return_6plus = EXCLUDED.p_return_6plus,
                         p_haul_10plus = EXCLUDED.p_haul_10plus,
+                        floor_points = EXCLUDED.floor_points,
+                        median_points = EXCLUDED.median_points,
+                        ceiling_points = EXCLUDED.ceiling_points,
                         predicted_at = now()
                     """,
                     rows,
