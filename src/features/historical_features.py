@@ -19,6 +19,14 @@ Same gap, same fix, for `starts` and the expected_* (xG-family) stats: FPL didn'
 all before the 2022-23 season, so 2020-21/2021-22 (added to broaden training data beyond the
 original 3-season window) get xg_data_available=0 and their derived roll features zeroed rather
 than a fabricated 0.0 that looks like a real "no expected-goal involvement" reading.
+
+Fixture-strength features (was_home, own/opp_attack_form, own/opp_defense_form): the model was
+otherwise blind to who a player is about to face - added after the Phase 6.5 error-analysis
+notebook flagged "opponent defensive weakness" as an untested direction. Computed from each
+team's own leak-free rolling goals-for/against (_compute_team_form, shift(1) before rolling,
+same discipline as everything else here), then attached at the per-fixture level before the
+DGW aggregation below so a double-gameweek's two fixtures average together like every other
+per-fixture stat.
 """
 from __future__ import annotations
 
@@ -30,6 +38,10 @@ import pandas as pd
 HISTORICAL_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "historical"
 SEASONS_WITH_DC = {"2025-26"}
 ROLLING_WINDOWS = (3, 5)
+TEAM_FORM_WINDOW = 5  # matches v_team_form's window (sql/analytics.sql) - same design choice,
+# reused here so the live dashboard's Fixture Difficulty Score and this model's opponent
+# features are built on the same notion of "recent form", just computed independently in
+# Python since training reads from the historical CSV archive, not our own live DB.
 
 SUM_COLS = [
     "minutes", "goals_scored", "assists", "bps", "bonus", "total_points",
@@ -40,6 +52,19 @@ SUM_COLS = [
 DC_SUM_COLS = ["clearances_blocks_interceptions", "defensive_contribution", "recoveries", "tackles"]
 XG_SUM_COLS = ["starts", "expected_goals", "expected_assists", "expected_goal_involvements", "expected_goals_conceded"]
 FIRST_COLS = ["name", "position", "value", "selected"]
+
+
+def _load_team_name_mapping(season_dir: Path) -> dict:
+    """merged_gw.csv's own `team` column is the full team NAME ('Man Utd'), but its
+    `opponent_team` column is that season's numeric team id (1-20, from teams.csv) - not the
+    same space, despite naming that suggests otherwise. teams.csv's `name` column matches
+    merged_gw.csv's `team` strings exactly, so this maps name -> id to put both columns in
+    the same space before any fixture-level join can work."""
+    path = season_dir / "teams.csv"
+    if not path.exists():
+        return {}
+    teams = pd.read_csv(path, usecols=["id", "name"])
+    return dict(zip(teams["name"], teams["id"]))
 
 
 def _load_code_mapping(season_dir: Path) -> dict:
@@ -54,11 +79,66 @@ def _load_code_mapping(season_dir: Path) -> dict:
     return dict(zip(raw["id"], raw["code"]))
 
 
+def _extract_fixture_results(df: pd.DataFrame) -> pd.DataFrame:
+    """One row per (team, fixture): that team's own goals for/against and home/away for the
+    match. Deduped from the per-player rows - every player on a team shares an identical
+    view of their own team's fixture-level facts, so this just picks out the distinct ones."""
+    cols = ["fixture", "team", "opponent_team", "was_home", "team_h_score", "team_a_score", "kickoff_time"]
+    fx = df[cols].drop_duplicates(subset=["fixture", "team"]).copy()
+    fx["kickoff_time"] = pd.to_datetime(fx["kickoff_time"])
+    fx["goals_for"] = np.where(fx["was_home"], fx["team_h_score"], fx["team_a_score"])
+    fx["goals_against"] = np.where(fx["was_home"], fx["team_a_score"], fx["team_h_score"])
+    return fx[["fixture", "team", "opponent_team", "was_home", "kickoff_time", "goals_for", "goals_against"]]
+
+
+def _compute_team_form(fixture_results: pd.DataFrame, window: int = TEAM_FORM_WINDOW) -> pd.DataFrame:
+    """Leak-free rolling attack/defense form per team, ordered by kickoff time - shift(1)
+    before rolling, same no-leakage discipline as every other feature in this module, so a
+    team's form entering a fixture never includes that fixture's own result. A team's first
+    fixture(s) of the season (no prior result to roll over) get the league-average goals
+    figure instead of 0 - 0 would read as 'guaranteed to face the weakest possible
+    attack/defense', a worse assumption than 'unknown, assume average'."""
+    fixture_results = fixture_results.sort_values(["team", "kickoff_time"]).copy()
+    league_avg_goals = fixture_results["goals_for"].mean()
+    grouped = fixture_results.groupby("team", sort=False)
+    fixture_results["attack_form"] = (
+        grouped["goals_for"].transform(lambda s: s.shift(1).rolling(window, min_periods=1).mean())
+        .fillna(league_avg_goals)
+    )
+    fixture_results["defense_form"] = (
+        grouped["goals_against"].transform(lambda s: s.shift(1).rolling(window, min_periods=1).mean())
+        .fillna(league_avg_goals)
+    )
+    return fixture_results
+
+
+def _attach_fixture_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Adds was_home + each row's own team's and opponent's rolling attack/defense form
+    (leak-free as of entering that specific fixture) to the per-player-fixture rows, before
+    they get aggregated to one row per (season, element, GW). Unlike the rolling player-stat
+    features elsewhere in this module, these are NOT shifted again at the player level - the
+    upcoming fixture and the opponent's rolling form going into it are legitimately known
+    before kickoff, so no additional lag is needed on top of _compute_team_form's own shift."""
+    form = _compute_team_form(_extract_fixture_results(df))
+    own = form[["fixture", "team", "attack_form", "defense_form"]].rename(
+        columns={"attack_form": "own_attack_form", "defense_form": "own_defense_form"}
+    )
+    opp = form[["fixture", "team", "attack_form", "defense_form"]].rename(
+        columns={"team": "opponent_team", "attack_form": "opp_attack_form", "defense_form": "opp_defense_form"}
+    )
+    df = df.merge(own, on=["fixture", "team"], how="left")
+    df = df.merge(opp, on=["fixture", "opponent_team"], how="left")
+    df["was_home"] = df["was_home"].astype(float)
+    return df
+
+
 def _load_season(season_dir: Path) -> pd.DataFrame:
     season = season_dir.name
     df = pd.read_csv(season_dir / "merged_gw.csv")
     df["season"] = season
     df["code"] = df["element"].map(_load_code_mapping(season_dir))
+    df["team"] = df["team"].map(_load_team_name_mapping(season_dir))
+    df = _attach_fixture_features(df)
 
     has_dc = season in SEASONS_WITH_DC
     has_xg = "expected_goals" in df.columns  # FPL didn't track xG-family stats or `starts`
@@ -71,7 +151,9 @@ def _load_season(season_dir: Path) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = np.nan
 
+    FIXTURE_COLS = ["was_home", "own_attack_form", "own_defense_form", "opp_attack_form", "opp_defense_form"]
     agg = {col: "sum" for col in SUM_COLS + DC_SUM_COLS}
+    agg.update({col: "mean" for col in FIXTURE_COLS})
     agg.update({col: "first" for col in FIRST_COLS + ["code"]})
 
     grouped = df.groupby(["season", "element", "GW"], as_index=False).agg(agg)
@@ -219,6 +301,7 @@ FEATURE_COLS = [
     "price", "dc_data_available", "xg_data_available",
     "season_points_per90_avg", "season_minutes_avg",
     "had_prior_season", "prev_season_points_per90", "prev_season_minutes_avg", "prev_season_total_points",
+    "was_home", "own_attack_form", "own_defense_form", "opp_attack_form", "opp_defense_form",
 ] + [f"{stat}_roll{w}" for w in ROLLING_WINDOWS for stat in (
     "points_per90", "goals_per90", "assists_per90", "xg_per90", "xa_per90",
     "xgc_per90", "minutes", "bps", "ict_index", "dc", "starts_rate", "threat", "creativity",

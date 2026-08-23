@@ -270,6 +270,45 @@ Two real bugs caught and fixed while wiring this in, not just the intended featu
    transaction" for hours between reruns — this is what silently blocked an unrelated schema
    migration earlier the same session. Fixed at the source in `get_connection()`.
 
+**Phase 6.6 — Fixture/opponent-strength features** (2026-08-22, complete)
+
+Finished the other half of Phase 6.5's "haul-specific feature set" idea: `threat`/`creativity`
+tested there were still player-only signal. The model had zero information about who a player
+is actually about to face — `historical_features.py` never touched `opponent_team`/`was_home`/
+`team_h_score`/`team_a_score`, even though they're present in every season of the source data.
+
+Added `was_home` plus each row's own team's and opponent's rolling attack/defense form
+(`own_attack_form`, `own_defense_form`, `opp_attack_form`, `opp_defense_form` — goals
+for/against, leak-free `shift(1)` before a 5-fixture rolling window, same discipline as every
+other feature here and the same window `v_team_form` already uses for the live dashboard's
+Fixture Difficulty Score). Computed at the per-fixture level from each team's own match
+results (`_compute_team_form`) before the double-gameweek aggregation, so a DGW's two fixtures
+average together like any other per-fixture stat. One real gotcha: the archive's `team` column
+on `merged_gw.csv` is the team's full *name* ("Man Utd"), but `opponent_team` is that season's
+numeric id — not the same space despite the naming — so a `teams.csv` per season (now also
+pulled by `download_historical_data.sh`) is needed to map name → id before the two can join.
+Live serving (`live_features.py`) mirrors this from the `fixtures` table instead of the CSV
+archive: rolling form as of the most recent finished result for the synthetic next-gameweek
+row, and each team's next *unplayed* fixture (earliest by kickoff time) for the opponent/
+home-away it hasn't faced yet — the same "form entering the next fixture" notion
+`v_team_latest_form` already uses for the dashboard.
+
+**Honest result**: a real but modest lift, not a breakthrough. The single held-out-season split
+`train.py` uses moved from R²=0.320 (Random Forest, the prior deployed model) to R²=0.328
+(XGBoost, which overtakes Random Forest as best on this fold now) — RF itself moved to 0.323.
+Feature importance shows why: `opp_attack_form` is the most important of the five new features
+but is still only ~0.6% of the deployed model's total decision weight (`minutes_roll3` alone is
+still ~65%). Re-run across the full 5-fold walk-forward harness
+(`notebooks/08_cross_validation.ipynb`'s split), the aggregate picture is flatter than the
+single-split number suggests — mean R² across all folds barely moved (RF 0.297±0.020 →
+0.298±0.020; XGBoost 0.295±0.026, close behind but not stably ahead) — the gain shows up mainly
+on the fold with the most training data (the real deployed split), not uniformly across folds
+with less history. Adopted anyway: it's a genuine, mechanistically sensible signal (a player in
+front of a leaky defense should score more, and now the model can see that) with no
+cross-validated downside, even though its practical size is small next to "will this player
+play" and "how involved are they" — the same two features that already dominated before this
+change and still do.
+
 **Phase 7 — Quantile regression + Monte Carlo simulation** (2026-08-22, in progress — floor/
 ceiling piece complete, injury-signal audit and LLM explanations not started)
 

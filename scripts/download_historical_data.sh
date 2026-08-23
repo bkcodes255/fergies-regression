@@ -32,4 +32,6 @@ for season in "${SEASONS[@]}"; do
         && echo "  merged_gw.csv: $(wc -l < "$dir/merged_gw.csv") lines"
     curl -sf -o "$dir/players_raw.csv" "$BASE_URL/$season/players_raw.csv" \
         && echo "  players_raw.csv: $(wc -l < "$dir/players_raw.csv") lines"
+    curl -sf -o "$dir/teams.csv" "$BASE_URL/$season/teams.csv" \
+        && echo "  teams.csv: $(wc -l < "$dir/teams.csv") lines"
 done
