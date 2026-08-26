@@ -28,6 +28,7 @@ Run directly:
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 import joblib
 import pandas as pd
@@ -75,7 +76,7 @@ def _record_model_version(cur, model_type, target, features, hyperparameters, me
     )
 
 
-def train_threshold(df: pd.DataFrame, threshold: int, target_name: str, cur) -> dict:
+def train_threshold(df: pd.DataFrame, threshold: int, target_name: str, cur, run_id: str) -> dict:
     feature_cols = FEATURE_COLS + _position_cols(df)
     labeled = df.copy()
     labeled["label"] = (labeled["target_total_points"] >= threshold).astype(int)
@@ -107,7 +108,10 @@ def train_threshold(df: pd.DataFrame, threshold: int, target_name: str, cur) -> 
         print(f"  {model_type:20s}  ROC-AUC={metrics['roc_auc']:.3f}  Brier={metrics['brier_score']:.3f}")
         artifact_path = None
         if model is not None:
-            artifact_path = str(MODELS_DIR / f"{target_name}_{model_type}.joblib")
+            # run_id keeps this filename unique per run() invocation - a static name meant
+            # every retrain silently overwrote the file an OLDER model_versions row still
+            # pointed to (same real bug found and fixed in train.py on 2026-08-26).
+            artifact_path = str(MODELS_DIR / f"{target_name}_{model_type}_{run_id}.joblib")
             joblib.dump(model, artifact_path)
         hyperparams = RF_PARAMS if model_type == "random_forest" else XGB_PARAMS if model_type == "xgboost" else None
         _record_model_version(cur, model_type, target_name, feature_cols, hyperparams, metrics, artifact_path)
@@ -120,12 +124,13 @@ def run() -> None:
     df = build_training_frame()
     print(f"Loaded {len(df)} player-gameweek rows.")
 
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     conn = get_connection()
     try:
         with conn:
             with conn.cursor() as cur:
                 for target_name, threshold in THRESHOLDS.items():
-                    train_threshold(df, threshold, target_name, cur)
+                    train_threshold(df, threshold, target_name, cur, run_id)
     finally:
         conn.close()
 

@@ -26,6 +26,7 @@ Run directly:
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import joblib
@@ -83,7 +84,7 @@ def _record_model_version(cur, model_type, target, features, hyperparameters, me
     )
 
 
-def train_target(df: pd.DataFrame, target_col: str, target_name: str, baseline_col: str, cur) -> dict:
+def train_target(df: pd.DataFrame, target_col: str, target_name: str, baseline_col: str, cur, run_id: str) -> dict:
     """Trains baseline/linear/RF/XGBoost for one target, returns {model_type: (model_or_None, metrics, y_pred_test)}."""
     feature_cols = FEATURE_COLS + _position_cols(df)
 
@@ -115,7 +116,14 @@ def train_target(df: pd.DataFrame, target_col: str, target_name: str, baseline_c
 
         artifact_path = None
         if model is not None:
-            artifact_path = str(MODELS_DIR / f"{target_name}_{model_type}.joblib")
+            # Filename includes run_id (shared across this whole run() invocation) - a static
+            # "{target}_{model_type}.joblib" name meant every retrain silently overwrote the
+            # file an OLDER model_versions row still pointed to, even though that row's
+            # recorded metrics/feature list described the model that USED to be there. Real bug
+            # found 2026-08-26: predict_live.py crashed with an XGBoost feature-count mismatch
+            # because model_id=79's "best by RMSE" row (45 features) had its file silently
+            # replaced by two later retrains (49, then 54 features) before it was ever served.
+            artifact_path = str(MODELS_DIR / f"{target_name}_{model_type}_{run_id}.joblib")
             joblib.dump(model, artifact_path)
 
         hyperparams = RF_PARAMS if model_type == "random_forest" else XGB_PARAMS if model_type == "xgboost" else None
@@ -169,17 +177,19 @@ def run() -> None:
     print(f"Loaded {len(df)} player-gameweek rows across {df['season'].nunique()} seasons.")
     df["season_points_baseline"] = direct_points_baseline(df)
 
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+
     conn = get_connection()
     try:
         with conn:
             with conn.cursor() as cur:
-                minutes_out = train_target(df, "target_minutes", "minutes", "season_minutes_avg", cur)
+                minutes_out = train_target(df, "target_minutes", "minutes", "season_minutes_avg", cur, run_id)
                 points_df = df.dropna(subset=["target_points_per90"])
                 points_out = train_target(
-                    points_df, "target_points_per90", "points_per_90", "season_points_per90_avg", cur
+                    points_df, "target_points_per90", "points_per_90", "season_points_per90_avg", cur, run_id
                 )
                 direct_out = train_target(
-                    df, "target_total_points", "total_points_direct", "season_points_baseline", cur
+                    df, "target_total_points", "total_points_direct", "season_points_baseline", cur, run_id
                 )
         print(
             "\n--- Decomposed (points_per_90 x minutes) vs direct total_points comparison ---\n"

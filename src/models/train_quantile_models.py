@@ -19,6 +19,7 @@ Run directly:
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 import joblib
 import numpy as np
@@ -94,6 +95,7 @@ def run() -> None:
     X_test, y_test = test_df[feature_cols].fillna(0.0), test_df["target_total_points"]
     print(f"Train: {len(X_train)} rows. Test: {len(X_test)} rows.")
 
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     conn = get_connection()
     try:
         with conn:
@@ -118,7 +120,10 @@ def run() -> None:
                     print(f"  Nailed-starters-only calibration (n={seg['nailed_n']}): "
                           f"{nailed_rate:.3f} (target {q:.2f}) {verdict}")
 
-                    artifact_path = str(MODELS_DIR / f"{target_name}_gbr.joblib")
+                    # run_id keeps this filename unique per run() invocation - a static name
+                    # meant every retrain silently overwrote the file an OLDER model_versions
+                    # row still pointed to (same real bug found and fixed in train.py).
+                    artifact_path = str(MODELS_DIR / f"{target_name}_gbr_{run_id}.joblib")
                     joblib.dump(model, artifact_path)
                     _record_model_version(
                         cur, "gradient_boosting_quantile", target_name, feature_cols,

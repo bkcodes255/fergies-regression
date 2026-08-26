@@ -13,7 +13,17 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.features.historical_features import DC_SUM_COLS, SUM_COLS, TEAM_FORM_WINDOW, engineer_features
+from src.features.historical_features import (
+    CONGESTED_REST_THRESHOLD_DAYS,
+    CONGESTION_WINDOW_DAYS,
+    DC_SUM_COLS,
+    SUM_COLS,
+    TEAM_FORM_WINDOW,
+    compute_injury_features,
+    engineer_features,
+    is_muscle_tendon_injury,
+    load_player_injuries,
+)
 
 # Historical training data used "GK" for goalkeepers (vaastav archive convention); our own
 # schema's element_type uses FPL's own GKP/DEF/MID/FWD labels. Map to match what the model
@@ -96,6 +106,37 @@ def _load_team_form_now(conn, season: str) -> pd.DataFrame:
     return form
 
 
+def _load_team_congestion(conn, season: str) -> pd.DataFrame:
+    """Each team's days_since_last_match/matches_last_14d/is_congested as of their NEXT
+    unplayed fixture - mirrors historical_features._compute_fixture_congestion's per-fixture
+    notion, just computed from the live `fixtures` table instead of the CSV archive. Same
+    EPL-only limitation stated there: only counts EPL matches we've ingested, not cup/European
+    fixtures."""
+    fx = pd.read_sql_query(FIXTURES_QUERY, conn, params={"season": season})
+    perspectives = _team_perspectives(fx)
+    perspectives["kickoff_time"] = pd.to_datetime(perspectives["kickoff_time"], utc=True)
+
+    played = perspectives[perspectives["finished_provisional"] & perspectives["kickoff_time"].notna()]
+    unplayed = perspectives[~perspectives["finished_provisional"] & perspectives["kickoff_time"].notna()]
+
+    last_played = played.sort_values("kickoff_time").groupby("team_code")["kickoff_time"].last()
+    next_kickoff = unplayed.sort_values("kickoff_time").groupby("team_code")["kickoff_time"].first()
+
+    rows = []
+    for team_code, next_kt in next_kickoff.items():
+        last_kt = last_played.get(team_code)
+        days_since = (next_kt - last_kt) / np.timedelta64(1, "D") if pd.notna(last_kt) else CONGESTION_WINDOW_DAYS
+        team_played = played[played["team_code"] == team_code]
+        window_start = next_kt - pd.Timedelta(days=CONGESTION_WINDOW_DAYS)
+        matches_in_window = int((team_played["kickoff_time"] >= window_start).sum())
+        rows.append({"team_code": team_code, "days_since_last_match": max(days_since, 0),
+                     "matches_last_14d": matches_in_window})
+
+    congestion = pd.DataFrame(rows, columns=["team_code", "days_since_last_match", "matches_last_14d"])
+    congestion["is_congested"] = (congestion["days_since_last_match"] <= CONGESTED_REST_THRESHOLD_DAYS).astype(float)
+    return congestion
+
+
 def _load_next_fixture(conn, season: str) -> pd.DataFrame:
     """Each team's next unplayed fixture - opponent + home/away, for the synthetic
     prediction row. Picks the earliest by kickoff_time, so a team in a blank gameweek (no
@@ -105,7 +146,9 @@ def _load_next_fixture(conn, season: str) -> pd.DataFrame:
     unplayed = perspectives[~perspectives["finished_provisional"] & perspectives["kickoff_time"].notna()].copy()
     unplayed["kickoff_time"] = pd.to_datetime(unplayed["kickoff_time"], utc=True)
     unplayed = unplayed.sort_values("kickoff_time")
-    return unplayed.drop_duplicates(subset=["team_code"], keep="first")[["team_code", "opponent_code", "was_home"]]
+    return unplayed.drop_duplicates(subset=["team_code"], keep="first")[
+        ["team_code", "opponent_code", "was_home", "kickoff_time"]
+    ]
 
 
 def load_live_gameweeks(conn, season: str) -> pd.DataFrame:
@@ -172,6 +215,27 @@ def build_live_feature_frame(conn, season: str, feature_cols: list[str]) -> pd.D
         on="opponent_code", how="left",
     )
     latest["was_home"] = latest["was_home"].astype(float)
+
+    congestion = _load_team_congestion(conn, season)
+    latest = latest.merge(congestion, on="team_code", how="left")
+    latest["days_since_last_match"] = latest["days_since_last_match"].fillna(CONGESTION_WINDOW_DAYS)
+    latest["matches_last_14d"] = latest["matches_last_14d"].fillna(0)
+    latest["is_congested"] = latest["is_congested"].fillna(0.0)
+
+    # Injury features "as of" the player's own upcoming fixture kickoff - same leak-free notion
+    # as training (compute_injury_features), just using the real live fixtures table's next
+    # unplayed kickoff_time instead of a historical row's own kickoff_time. Falls back to "now"
+    # for any player with no resolved next fixture (e.g. season just ended).
+    as_of = latest["kickoff_time"].fillna(pd.Timestamp.utcnow())
+    injuries = load_player_injuries()
+    injury_features = compute_injury_features(latest["element"], as_of, injuries)
+    for col in ("days_since_last_injury", "injuries_last_365d", "is_returning_from_injury", "injury_data_available"):
+        latest[col] = injury_features[col].to_numpy()
+
+    muscle_injuries = injuries[injuries["injury_type"].map(is_muscle_tendon_injury)]
+    muscle_features = compute_injury_features(latest["element"], as_of, muscle_injuries)
+    latest["muscle_injuries_last_365d"] = muscle_features["injuries_last_365d"].to_numpy()
+    latest["injury_congestion_risk"] = latest["muscle_injuries_last_365d"] * latest["is_congested"]
 
     position_dummies = pd.get_dummies(latest["position"], prefix="pos")
     latest = pd.concat([latest, position_dummies], axis=1)

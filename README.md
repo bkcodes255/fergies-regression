@@ -337,9 +337,69 @@ from one data point, to be re-checked as more gameweeks accumulate.
 Dashboard: Player Rankings gets a Floor–Ceiling range column; My Squad gets a Monte Carlo
 section with real percentile stats and a histogram of 10,000 simulated starting-XI outcomes.
 See `notebooks/10_haul_classifier.ipynb` and `notebooks/11_monte_carlo.ipynb` for the full
-writeups. Not started: injury/news signal (FPL's own `news`/`chance_of_playing_next_round`
-fields are already ingested but barely used beyond a binary status filter) and LLM-generated
-explanations (needs an API key/cost decision first).
+writeups.
+
+**Phase 7.5 — Injury/fixture-congestion features** (2026-08-26/27, complete — quantile-model
+integration and LLM explanations still not started)
+
+`status`/`chance_of_playing_next_round`/`news` are live-ingested (`player_price_snapshots`) but
+confirmed absent from the historical training archive entirely, so this can't be a trained
+feature from FPL's own live data alone. Backfilled real injury history instead from a verified
+external dataset — "European Football Injuries (2020-2025)" (Kaggle, CC BY-SA 4.0, 15,603
+records across the Big-5 European leagues) — into a new `player_injuries` table
+(`src/ingestion/injuries_kaggle.py`), matched to our stable `player_code` via a new multi-pass
+name matcher (`src/ingestion/injury_matching.py`: exact → substring-of-web_name → fuzzy,
+disambiguated by club with a small alias table for abbreviations like "Man Utd"/"Manchester
+United" that generic fuzzy matching can't bridge). 96.5% of EPL names matched; spot-checked
+against real public record (Van Dijk's 255-day ACL tear, Saka's 99-day hamstring injury,
+Maddison's Leicester→Tottenham transfer timing) before being trusted.
+
+**First attempt, honestly reported as a miss**: four flat injury-history features
+(`days_since_last_injury`, `injuries_last_365d`, `is_returning_from_injury`,
+`injury_data_available`) slightly *hurt* accuracy (XGBoost R² 0.3275→0.321) — largely redundant
+with what `minutes_roll3` already captures (an injured player already shows near-zero recent
+minutes).
+
+**Redesigned around the actual mechanism** (Sports Medicine 2022 systematic review on fixture
+congestion and injury; the underlying UEFA studies): injury risk specifically rises when a
+congested run (≤4 days between matches, the literature's standard threshold) combines with a
+player's own prior injury history — particularly muscle/tendon injuries (hamstring, calf,
+groin — the fatigue-accumulation mechanism), not injuries generally. Added
+`days_since_last_match`/`matches_last_14d`/`is_congested` (own-team fixture congestion, EPL
+matches only — a real, stated undercount for continentally active clubs, since cup/European
+fixtures aren't in our archive), `muscle_injuries_last_365d` (keyword-classified from the real
+`injury_type` strings observed), and `injury_congestion_risk` (their product, for linear
+regression's benefit).
+
+**Still didn't move the pooled R²** (0.321→0.322, noise-level) — but bucketing test predictions
+by the interaction flag showed something real: the ~2% of rows where it fires are genuinely
+harder to predict (R² drops to ~0.23 vs ~0.32 for everyone else) and score *more* on average,
+not less (1.63 vs 1.16 actual mean points) — likely because surviving to "playing through a
+congested run with a recent muscle injury on record" selects for first-team regulars managers
+push through knocks, not a simple risk discount. **Conclusion: this is a volatility signal, not
+a mean-shift signal** — a point-estimate regressor can only move its predicted mean, so it
+structurally can't benefit from a "this one's noisier" signal even though the signal is real.
+The natural next step is wiring these features into the quantile floor/ceiling models instead
+(widen the spread for at-risk players, rather than trying to shift the point estimate) — not
+yet done.
+
+Mirrored into `live_features.py` for live serving (`_load_team_congestion`, reusing
+`compute_injury_features`/`is_muscle_tendon_injury` from `historical_features.py` so training
+and serving share identical recency math) whether or not the deployed model ends up using
+these columns.
+
+**Real bug found and fixed along the way, not just the intended feature**: `train.py` (and
+`train_haul_classifier.py`/`train_quantile_models.py`) wrote every retrain to a *static*
+filename (`models/{target}_{model_type}.joblib`), so re-running training silently overwrote
+the file an OLDER `model_versions` row still pointed to — that row's recorded metrics/feature
+list described a model that no longer existed at that path. This is a pre-existing bug (traced
+back to `model_id=18` from 2026-08-21), not something introduced this session, but repeated
+retraining today surfaced it as a live crash (`predict_live.py` tried to score 54 real features
+through a stale artifact still recorded as the 45-feature Phase 6.6 model). Fixed by giving
+every artifact a run-unique filename (a timestamp shared across one `run()`'s targets); cleaned
+up the 60 already-stale rows by nulling their now-incorrect `artifact_path` (same convention
+Model Lab's experiment rows already use to opt out of `predict_live.get_best_model`'s
+selection) rather than deleting the historical record.
 
 ## Build phases
 

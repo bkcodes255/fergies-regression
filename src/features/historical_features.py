@@ -27,6 +27,34 @@ team's own leak-free rolling goals-for/against (_compute_team_form, shift(1) bef
 same discipline as everything else here), then attached at the per-fixture level before the
 DGW aggregation below so a double-gameweek's two fixtures average together like every other
 per-fixture stat.
+
+Injury-history features (days_since_last_injury, injuries_last_365d, is_returning_from_injury,
+injury_data_available): backfilled from a verified external dataset into the player_injuries
+DB table (src/ingestion/injuries_kaggle.py - the historical CSV archive itself has never
+carried injury/availability data at all, confirmed by inspection, which is why this needs a
+separate table rather than another *_data_available column derived from the archive like
+dc_data_available/xg_data_available above). Leak-free the same way as everything else here:
+only injury records with injury_from strictly before a row's own fixture kickoff_time are
+visible to that row (compute_injury_features, shared with live_features.py so training and
+serving use identical recency math).
+
+Fixture-congestion features (days_since_last_match, matches_last_14d, is_congested) and the
+muscle-injury-specific redesign (muscle_injuries_last_365d, injury_congestion_risk): the first
+version of the injury features (above) were flat/standalone and, honestly, didn't help
+(R2 went slightly DOWN, 0.3275->0.321 XGBoost) - the real mechanism per the sports-science
+literature (Sports Medicine 2022 systematic review on fixture congestion and injury; the
+underlying UEFA studies) is that injury risk rises specifically WHEN a congested run
+(<=4 days between matches, the standard threshold in that literature) combines with a player's
+own prior injury history - particularly muscle/tendon injuries (hamstring, calf, groin, etc. -
+the fatigue-accumulation mechanism), not injuries generally (a concussion or bout of flu has no
+plausible congestion-interaction). is_congested and muscle_injuries_last_365d are each
+leak-free on their own; injury_congestion_risk = muscle_injuries_last_365d * is_congested is an
+explicit product term so linear regression can see the interaction directly (tree models can
+already discover it from the two raw ingredients via sequential splits, but the explicit term
+keeps it auditable in Model Lab's OLS/permutation-importance diagnostics either way).
+EPL-only limitation stated plainly: congestion here only counts EPL matches from our own
+archive, not cup/European fixtures we don't have - a real, known undercount for continentally
+active clubs, not silently assumed away.
 """
 from __future__ import annotations
 
@@ -52,6 +80,156 @@ SUM_COLS = [
 DC_SUM_COLS = ["clearances_blocks_interceptions", "defensive_contribution", "recoveries", "tackles"]
 XG_SUM_COLS = ["starts", "expected_goals", "expected_assists", "expected_goal_involvements", "expected_goals_conceded"]
 FIRST_COLS = ["name", "position", "value", "selected"]
+
+
+INJURY_RECENCY_WINDOW_DAYS = 365
+INJURY_RETURNING_WINDOW_DAYS = 14
+INJURY_NO_HISTORY_SENTINEL = 9999  # "no record of this player ever being injured" - a large,
+# clearly-out-of-range value a tree model can split around, same idea as the dc/xg
+# data-availability flags above rather than fabricating a plausible-looking 0.
+
+CONGESTION_WINDOW_DAYS = 14
+CONGESTED_REST_THRESHOLD_DAYS = 4  # <=4 days between matches is the standard "congested"
+# threshold in the sports-science literature (Sports Medicine 2022 systematic review on
+# fixture congestion and injury in professional male soccer; some studies use <=5-6 days -
+# this project uses the more conservative/common one). EPL-only limitation, stated plainly:
+# this only counts EPL matches from our own archive - a team's TRUE match load also includes
+# cup and European fixtures we don't have, so this undercounts true rest deficit for clubs in
+# continental competition. A real, known gap, not silently assumed away.
+
+# Muscle/tendon injuries are specifically the category the fatigue-accumulation mechanism in
+# the literature implicates (repeated sprints/changes of direction -> fatigue -> muscle
+# damage), distinct from ligament tears (more often traumatic/contact), fractures, or illness.
+# Built from the actual distinct injury_type strings observed in player_injuries, not guessed
+# blind - see the real value_counts pulled during development.
+MUSCLE_TENDON_KEYWORDS = (
+    "hamstring", "muscle", "muscular", "thigh", "calf", "groin", "adductor",
+    "strain", "dead leg", "tendon", "achilles", "hip flexor", "pubalgia", "cramp", "contracture",
+)
+
+
+def load_player_injuries() -> pd.DataFrame:
+    """All injury records from player_injuries, normalized for recency math. Public (no leading
+    underscore) - live_features.py calls this directly so both sides read the exact same table
+    the exact same way, not two independent queries that could quietly drift apart."""
+    from src.ingestion.db import get_connection
+
+    conn = get_connection()
+    try:
+        injuries = pd.read_sql_query(
+            "SELECT player_code, injury_from, injury_until, injury_type FROM player_injuries", conn
+        )
+    finally:
+        conn.close()
+    injuries["injury_from"] = pd.to_datetime(injuries["injury_from"]).astype("datetime64[ns]")
+    injuries["injury_until"] = pd.to_datetime(injuries["injury_until"]).astype("datetime64[ns]")
+    # A NULL injury_until means "still out / unknown return as of when this was recorded" -
+    # treating that as "already back" would be a dangerous assumption for a training feature,
+    # so it's treated as an extremely long injury instead (matches INJURY_NO_HISTORY_SENTINEL's
+    # spirit: an explicit out-of-range value, not a fabricated plausible one).
+    injuries["injury_until"] = injuries["injury_until"].fillna(
+        injuries["injury_from"] + pd.Timedelta(days=INJURY_NO_HISTORY_SENTINEL)
+    )
+    return injuries
+
+
+_injuries_cache: pd.DataFrame | None = None
+
+
+def _cached_player_injuries() -> pd.DataFrame:
+    """_load_season() is called both from load_all_seasons() (once per season) and from
+    _prior_season_summary() (once per season again, for the prior-season-carryover feature) -
+    a per-process cache means the DB only gets hit once regardless of how many call sites end
+    up needing it, rather than threading the same DataFrame through every layer by hand."""
+    global _injuries_cache
+    if _injuries_cache is None:
+        _injuries_cache = load_player_injuries()
+    return _injuries_cache
+
+
+def compute_injury_features(codes: pd.Series, as_of: pd.Series, injuries: pd.DataFrame) -> pd.DataFrame:
+    """For each (code, as_of) pair, leak-free injury-history features using only injury records
+    with injury_from strictly before as_of. Shared by historical_features (training) and
+    live_features (serving) so the same recency math runs both places.
+
+    Vectorized via merge_asof per player group (C-level, not a per-row Python loop) - an
+    earlier row-by-row implementation took ~4 minutes on the full training frame, too slow to
+    re-pay on every retrain/Model Lab experiment/backward-elimination round. Only ~2000 player
+    groups, each a fast asof join, not 150k+ individual lookups.
+
+    running_max_until = the latest injury_until seen among all injuries up to and including
+    this one (cummax, not just this row's own until) - correctly handles a player whose most
+    RECENT injury by start date wasn't necessarily their LONGEST-running one. running_count is
+    a cumulative count used to derive a windowed count via two asof lookups (as_of and
+    as_of-365d) rather than a per-row filter+sum."""
+    as_of_dt = pd.to_datetime(as_of.to_numpy(), utc=True).tz_localize(None).astype("datetime64[ns]")
+    query = pd.DataFrame({"code": codes.to_numpy(), "as_of": as_of_dt})
+    query["_orig_order"] = np.arange(len(query))
+    has_history = set(injuries["player_code"].unique())
+
+    parts = []
+    for code, group in query.groupby("code", sort=False):
+        g = group.sort_values("as_of").copy()
+        hist = injuries.loc[injuries["player_code"] == code].sort_values("injury_from")
+        if hist.empty:
+            g["days_since_last_injury"] = float(INJURY_NO_HISTORY_SENTINEL)
+            g["injuries_last_365d"] = 0
+            parts.append(g)
+            continue
+
+        hist = hist.copy()
+        hist["running_max_until"] = hist["injury_until"].cummax()
+        hist["running_count"] = np.arange(1, len(hist) + 1)
+
+        merged = pd.merge_asof(
+            g, hist[["injury_from", "running_max_until", "running_count"]],
+            left_on="as_of", right_on="injury_from", direction="backward", allow_exact_matches=False,
+        )
+        gap_days = (merged["as_of"] - merged["running_max_until"]) / np.timedelta64(1, "D")
+        g["days_since_last_injury"] = gap_days.clip(lower=0).fillna(INJURY_NO_HISTORY_SENTINEL).to_numpy()
+        count_as_of = merged["running_count"].fillna(0).to_numpy()
+
+        window_query = pd.DataFrame({"as_of": g["as_of"] - pd.Timedelta(days=INJURY_RECENCY_WINDOW_DAYS)})
+        merged_window = pd.merge_asof(
+            window_query, hist[["injury_from", "running_count"]],
+            left_on="as_of", right_on="injury_from", direction="backward", allow_exact_matches=False,
+        )
+        count_before_window = merged_window["running_count"].fillna(0).to_numpy()
+        g["injuries_last_365d"] = (count_as_of - count_before_window).astype(int)
+        parts.append(g)
+
+    out = pd.concat(parts, ignore_index=True).sort_values("_orig_order").drop(columns="_orig_order")
+    out = out.reset_index(drop=True)
+    out["is_returning_from_injury"] = (out["days_since_last_injury"] <= INJURY_RETURNING_WINDOW_DAYS).astype(int)
+    out["injury_data_available"] = out["code"].isin(has_history).astype(int)
+    return out
+
+
+def is_muscle_tendon_injury(injury_type) -> bool:
+    if pd.isna(injury_type):
+        return False
+    text = str(injury_type).lower()
+    return any(keyword in text for keyword in MUSCLE_TENDON_KEYWORDS)
+
+
+def _attach_injury_features(df: pd.DataFrame, injuries: pd.DataFrame) -> pd.DataFrame:
+    """Adds injury-history features to per-player-fixture rows, before DGW aggregation, mirroring
+    _attach_fixture_features's placement in the pipeline. Requires is_congested to already be
+    present (from _attach_fixture_features, called first in _load_season) - the interaction
+    term is the whole point of this redesign: injury proneness mainly matters WHEN combined
+    with fixture congestion, not as a flat standalone signal (see the module docstring's
+    discussion of the fatigue-accumulation mechanism)."""
+    df = df.reset_index(drop=True)
+    features = compute_injury_features(df["code"], df["kickoff_time"], injuries)
+    for col in ("days_since_last_injury", "injuries_last_365d", "is_returning_from_injury", "injury_data_available"):
+        df[col] = features[col]
+
+    muscle_injuries = injuries[injuries["injury_type"].map(is_muscle_tendon_injury)]
+    muscle_features = compute_injury_features(df["code"], df["kickoff_time"], muscle_injuries)
+    df["muscle_injuries_last_365d"] = muscle_features["injuries_last_365d"]
+
+    df["injury_congestion_risk"] = df["muscle_injuries_last_365d"] * df["is_congested"]
+    return df
 
 
 def _load_team_name_mapping(season_dir: Path) -> dict:
@@ -112,14 +290,44 @@ def _compute_team_form(fixture_results: pd.DataFrame, window: int = TEAM_FORM_WI
     return fixture_results
 
 
+def _compute_fixture_congestion(fixture_results: pd.DataFrame) -> pd.DataFrame:
+    """Leak-free team-level fixture congestion: days since THIS team's previous EPL match, and
+    how many EPL matches they played in the trailing CONGESTION_WINDOW_DAYS - both computed
+    strictly from matches before this fixture (shift(1), same discipline as _compute_team_form).
+    Only ~20 teams x ~35-50 fixtures/season, so a plain per-team loop is fast - no need for the
+    merge_asof machinery the much-larger injury lookup needed."""
+    fixture_results = fixture_results.sort_values(["team", "kickoff_time"]).reset_index(drop=True)
+    days_since = np.full(len(fixture_results), np.nan)
+    matches_in_window = np.zeros(len(fixture_results), dtype=int)
+
+    for _, idx in fixture_results.groupby("team").groups.items():
+        idx = list(idx)
+        kts = fixture_results.loc[idx, "kickoff_time"].to_numpy()
+        for pos, row_idx in enumerate(idx):
+            if pos == 0:
+                continue
+            days_since[row_idx] = (kts[pos] - kts[pos - 1]) / np.timedelta64(1, "D")
+            window_start = kts[pos] - np.timedelta64(CONGESTION_WINDOW_DAYS, "D")
+            matches_in_window[row_idx] = int((kts[:pos] >= window_start).sum())
+
+    fixture_results["days_since_last_match"] = days_since
+    fixture_results["matches_last_14d"] = matches_in_window
+    return fixture_results
+
+
 def _attach_fixture_features(df: pd.DataFrame) -> pd.DataFrame:
     """Adds was_home + each row's own team's and opponent's rolling attack/defense form
     (leak-free as of entering that specific fixture) to the per-player-fixture rows, before
     they get aggregated to one row per (season, element, GW). Unlike the rolling player-stat
     features elsewhere in this module, these are NOT shifted again at the player level - the
     upcoming fixture and the opponent's rolling form going into it are legitimately known
-    before kickoff, so no additional lag is needed on top of _compute_team_form's own shift."""
-    form = _compute_team_form(_extract_fixture_results(df))
+    before kickoff, so no additional lag is needed on top of _compute_team_form's own shift.
+
+    Also adds the player's OWN team's fixture congestion (days_since_last_match,
+    matches_last_14d, is_congested) - congestion is specifically about the player's own side's
+    fatigue/rotation risk, not the opponent's."""
+    fixture_results = _extract_fixture_results(df)
+    form = _compute_team_form(fixture_results)
     own = form[["fixture", "team", "attack_form", "defense_form"]].rename(
         columns={"attack_form": "own_attack_form", "defense_form": "own_defense_form"}
     )
@@ -129,16 +337,35 @@ def _attach_fixture_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.merge(own, on=["fixture", "team"], how="left")
     df = df.merge(opp, on=["fixture", "opponent_team"], how="left")
     df["was_home"] = df["was_home"].astype(float)
+
+    congestion = _compute_fixture_congestion(fixture_results)
+    congestion_cols = congestion[["fixture", "team", "days_since_last_match", "matches_last_14d"]]
+    df = df.merge(congestion_cols, on=["fixture", "team"], how="left")
+    # No prior match on record (first fixture of our archive for that team) - treat as
+    # well-rested rather than fabricating a specific number of days.
+    df["days_since_last_match"] = df["days_since_last_match"].fillna(CONGESTION_WINDOW_DAYS)
+    df["matches_last_14d"] = df["matches_last_14d"].fillna(0)
+    df["is_congested"] = (df["days_since_last_match"] <= CONGESTED_REST_THRESHOLD_DAYS).astype(float)
     return df
 
 
-def _load_season(season_dir: Path) -> pd.DataFrame:
+INJURY_COLS = [
+    "days_since_last_injury", "injuries_last_365d", "is_returning_from_injury", "injury_data_available",
+    "muscle_injuries_last_365d", "injury_congestion_risk",
+]
+
+
+def _load_season(season_dir: Path, injuries: pd.DataFrame | None = None,
+                  attach_extra_features: bool = True) -> pd.DataFrame:
+    """attach_extra_features=False skips the fixture/injury feature attachment entirely (both
+    the DB-backed injury lookup and the per-player recency computation, the expensive parts) -
+    used by _prior_season_summary(), which only needs total_points/minutes/GW and would
+    otherwise redundantly recompute the same fixture/injury features for a season that's also
+    being (or will be) loaded in full elsewhere."""
     season = season_dir.name
     df = pd.read_csv(season_dir / "merged_gw.csv")
     df["season"] = season
     df["code"] = df["element"].map(_load_code_mapping(season_dir))
-    df["team"] = df["team"].map(_load_team_name_mapping(season_dir))
-    df = _attach_fixture_features(df)
 
     has_dc = season in SEASONS_WITH_DC
     has_xg = "expected_goals" in df.columns  # FPL didn't track xG-family stats or `starts`
@@ -151,10 +378,16 @@ def _load_season(season_dir: Path) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = np.nan
 
-    FIXTURE_COLS = ["was_home", "own_attack_form", "own_defense_form", "opp_attack_form", "opp_defense_form"]
     agg = {col: "sum" for col in SUM_COLS + DC_SUM_COLS}
-    agg.update({col: "mean" for col in FIXTURE_COLS})
     agg.update({col: "first" for col in FIRST_COLS + ["code"]})
+
+    if attach_extra_features:
+        df["team"] = df["team"].map(_load_team_name_mapping(season_dir))
+        df = _attach_fixture_features(df)
+        df = _attach_injury_features(df, injuries if injuries is not None else _cached_player_injuries())
+        extra_cols = ["was_home", "own_attack_form", "own_defense_form", "opp_attack_form", "opp_defense_form",
+                      "days_since_last_match", "matches_last_14d", "is_congested"] + INJURY_COLS
+        agg.update({col: "mean" for col in extra_cols})
 
     grouped = df.groupby(["season", "element", "GW"], as_index=False).agg(agg)
     grouped["dc_data_available"] = int(has_dc)
@@ -183,7 +416,7 @@ def _prior_season_summary(season: str) -> pd.DataFrame:
     if not prior_dir.exists() or not (prior_dir / "merged_gw.csv").exists():
         return empty
 
-    prior = _load_season(prior_dir)
+    prior = _load_season(prior_dir, attach_extra_features=False)
     summary = prior.groupby("code").agg(
         total_points=("total_points", "sum"), total_minutes=("minutes", "sum"), gameweeks=("GW", "nunique"),
     ).reset_index()
@@ -302,6 +535,9 @@ FEATURE_COLS = [
     "season_points_per90_avg", "season_minutes_avg",
     "had_prior_season", "prev_season_points_per90", "prev_season_minutes_avg", "prev_season_total_points",
     "was_home", "own_attack_form", "own_defense_form", "opp_attack_form", "opp_defense_form",
+    "days_since_last_match", "matches_last_14d", "is_congested",
+    "days_since_last_injury", "injuries_last_365d", "is_returning_from_injury", "injury_data_available",
+    "muscle_injuries_last_365d", "injury_congestion_risk",
 ] + [f"{stat}_roll{w}" for w in ROLLING_WINDOWS for stat in (
     "points_per90", "goals_per90", "assists_per90", "xg_per90", "xa_per90",
     "xgc_per90", "minutes", "bps", "ict_index", "dc", "starts_rate", "threat", "creativity",

@@ -259,3 +259,41 @@ CREATE INDEX idx_pgs_event ON player_gameweek_stats(season, event_id);
 CREATE INDEX idx_price_player ON player_price_snapshots(player_code);
 CREATE INDEX idx_fixtures_event ON fixtures(season, event_id);
 CREATE INDEX idx_raw_endpoint ON raw_snapshots(endpoint, season, pulled_at);
+
+-- Injury/unavailability history, backfilled once from a verified external dataset (Kaggle,
+-- 2020-2025, Big-5 European leagues) and kept fresh going forward by a scheduled scraper
+-- (Transfermarkt now, API-Football later) - see src/ingestion/injuries_kaggle.py and
+-- src/ingestion/injuries_transfermarkt.py. Never touches player_gameweek_stats/predictions;
+-- historical_features.py/live_features.py join against this table directly, leak-free (only
+-- injuries strictly before a row's own fixture kickoff_time are visible to that row).
+-- player_code is deliberately NOT a foreign key to players: that table only holds players
+-- we've live-ingested (2026/27 onward), but this table needs to carry the full 2020-2025
+-- historical roster too - retired players, players who left the league before this season,
+-- and anyone else who never appeared in a live pull. player_code is still the same stable FPL
+-- `code` identity space either way, just not guaranteed to already exist in `players`.
+CREATE TABLE player_injuries (
+    id              BIGSERIAL PRIMARY KEY,
+    player_code     INTEGER NOT NULL,
+    source          TEXT NOT NULL,          -- 'kaggle_thesis_2020_25' | 'transfermarkt' | 'api_football'
+    league          TEXT,                    -- as recorded by the source, informational only
+    injury_type     TEXT,
+    injury_from     DATE NOT NULL,
+    injury_until    DATE,                    -- nullable: still out / unknown return at time of record
+    days_out        INTEGER,
+    games_missed    INTEGER,
+    raw_player_name TEXT NOT NULL,           -- audit trail - what the source called them, pre-matching
+    inserted_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (player_code, source, injury_from, injury_type)
+);
+CREATE INDEX idx_player_injuries_player ON player_injuries(player_code);
+
+-- Maps our stable player_code to an external source's own id (Transfermarkt numeric id,
+-- API-Football player id, ...), resolved once via src/ingestion/injury_matching.py's
+-- multi-pass name matcher rather than re-matching by name on every scrape.
+CREATE TABLE player_external_ids (
+    player_code   INTEGER NOT NULL REFERENCES players(player_code),
+    source        TEXT NOT NULL,             -- 'transfermarkt' | 'api_football'
+    external_id   TEXT NOT NULL,
+    external_name TEXT NOT NULL,             -- name as recorded on that source, for audit
+    PRIMARY KEY (player_code, source)
+);

@@ -2,9 +2,12 @@
 data/raw/**
 data/processed/**
 data/historical/**
+data/injuries/**
+data/injury_unmatched_report.csv
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/historical/.gitkeep
+!data/injuries/.gitkeep
 
 # Python
 __pycache__/
