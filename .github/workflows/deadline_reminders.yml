@@ -1,0 +1,36 @@
+name: Deadline reminders
+
+# Runs entirely on GitHub's runners so reminders keep firing even when Brian's own machine is
+# off - the whole point of moving the DB to Supabase (see project memory). Every ~15 minutes is
+# fine granularity against the T-24h/T-3h/T-30m tiers in src/notify/deadline_scheduler.py; the
+# script itself is idempotent (reminder_log table), so overlapping/frequent runs are safe.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Deliberately not the full requirements.txt (matplotlib/sklearn/xgboost/streamlit/
+      # statsmodels aren't needed here and would slow every 15-minute run down for nothing) -
+      # just what src/notify/deadline_scheduler.py and its src/recommendations imports
+      # actually touch.
+      - name: Install dependencies
+        run: pip install pandas psycopg2-binary python-telegram-bot python-dotenv
+
+      - name: Run deadline scheduler
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          FPL_SEASON: "2026-27"
+          FPL_ENTRY_ID: ${{ secrets.FPL_ENTRY_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m src.notify.deadline_scheduler
