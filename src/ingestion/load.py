@@ -217,6 +217,7 @@ def upsert_price_snapshots(cur, bootstrap: dict, season: str, pulled_at: datetim
             el.get("cost_change_start"), _to_float(el.get("selected_by_percent")),
             el.get("transfers_in_event"), el.get("transfers_out_event"),
             el.get("status"), el.get("chance_of_playing_next_round"), el.get("news"),
+            _to_float(el.get("ep_next")), _to_float(el.get("ep_this")),
             pulled_at,
         )
         for el in bootstrap["elements"]
@@ -227,7 +228,7 @@ def upsert_price_snapshots(cur, bootstrap: dict, season: str, pulled_at: datetim
         INSERT INTO player_price_snapshots (
             season, player_code, snapshot_date, now_cost, cost_change_event, cost_change_start,
             selected_by_percent, transfers_in_event, transfers_out_event, status,
-            chance_of_playing_next_round, news, pulled_at
+            chance_of_playing_next_round, news, ep_next, ep_this, pulled_at
         ) VALUES %s
         ON CONFLICT (season, player_code, snapshot_date) DO UPDATE SET
             now_cost = EXCLUDED.now_cost, cost_change_event = EXCLUDED.cost_change_event,
@@ -236,7 +237,8 @@ def upsert_price_snapshots(cur, bootstrap: dict, season: str, pulled_at: datetim
             transfers_in_event = EXCLUDED.transfers_in_event,
             transfers_out_event = EXCLUDED.transfers_out_event, status = EXCLUDED.status,
             chance_of_playing_next_round = EXCLUDED.chance_of_playing_next_round,
-            news = EXCLUDED.news, pulled_at = EXCLUDED.pulled_at
+            news = EXCLUDED.news, ep_next = EXCLUDED.ep_next, ep_this = EXCLUDED.ep_this,
+            pulled_at = EXCLUDED.pulled_at
         """,
         rows,
     )

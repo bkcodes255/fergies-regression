@@ -203,3 +203,67 @@ SELECT
 FROM v_latest_price_snapshot lp
 JOIN players p ON p.player_code = lp.player_code
 JOIN player_seasons ps ON ps.player_code = lp.player_code AND ps.season = lp.season;
+
+-- =====================================================================================
+-- 6. Manager gameweek performance comparison: actual points vs the gameweek average/
+--    highest score, our own model's pre-GW prediction, and FPL's own ep_next-based
+--    prediction, for the manager's starting XI (multiplier >= 1 — bench doesn't count
+--    unless an auto-sub fires, which this ignores) each gameweek.
+--
+--    model_predicted_points / epl_predicted_points are NULL for any gameweek where a
+--    prediction/ep_next snapshot didn't exist *before that gameweek's deadline* — there is
+--    no way to retroactively reconstruct either for gameweeks played earlier (predictions
+--    are only ever generated for upcoming, unplayed gameweeks; ep_next wasn't historized
+--    before the ep_next/ep_this columns were added). NULL means "not available", not zero.
+--    *_players_matched lets a consumer tell a full-squad sum from a partial one (fewer than
+--    11 of the starting XI had a prediction/snapshot to sum).
+-- =====================================================================================
+CREATE OR REPLACE VIEW v_manager_gw_comparison AS
+WITH squad_starting_xi AS (
+    SELECT entry_id, season, event_id, player_code, multiplier
+    FROM squad_picks
+    WHERE multiplier >= 1
+),
+model_points AS (
+    SELECT sx.entry_id, sx.season, sx.event_id,
+           SUM(pr.predicted_points * sx.multiplier) AS model_predicted_points,
+           COUNT(*) AS model_players_matched
+    FROM squad_starting_xi sx
+    JOIN LATERAL (
+        SELECT predicted_points FROM predictions p
+        WHERE p.season = sx.season AND p.event_id = sx.event_id AND p.player_code = sx.player_code
+        ORDER BY p.predicted_at DESC LIMIT 1
+    ) pr ON true
+    GROUP BY sx.entry_id, sx.season, sx.event_id
+),
+epl_points AS (
+    SELECT sx.entry_id, sx.season, sx.event_id,
+           SUM(snap.ep_next * sx.multiplier) AS epl_predicted_points,
+           COUNT(*) AS epl_players_matched
+    FROM squad_starting_xi sx
+    JOIN gameweeks gw ON gw.season = sx.season AND gw.event_id = sx.event_id
+    JOIN LATERAL (
+        SELECT ep_next FROM player_price_snapshots pps
+        WHERE pps.season = sx.season AND pps.player_code = sx.player_code
+          AND pps.snapshot_date <= gw.deadline_time::date
+          AND pps.ep_next IS NOT NULL
+        ORDER BY pps.snapshot_date DESC LIMIT 1
+    ) snap ON true
+    GROUP BY sx.entry_id, sx.season, sx.event_id
+)
+SELECT
+    mg.entry_id, mg.season, mg.event_id, gw.name AS gw_name,
+    mg.points AS actual_points,
+    mp.model_predicted_points, mp.model_players_matched,
+    ep.epl_predicted_points, ep.epl_players_matched,
+    gw.average_entry_score AS gw_average,
+    gw.highest_score AS gw_highest,
+    mg.rank_percentage AS percentile,
+    mg.event_rank
+FROM manager_gameweeks mg
+JOIN gameweeks gw ON gw.season = mg.season AND gw.event_id = mg.event_id
+LEFT JOIN model_points mp
+    ON mp.entry_id = mg.entry_id AND mp.season = mg.season AND mp.event_id = mg.event_id
+LEFT JOIN epl_points ep
+    ON ep.entry_id = mg.entry_id AND ep.season = mg.season AND ep.event_id = mg.event_id
+ORDER BY mg.entry_id, mg.event_id;

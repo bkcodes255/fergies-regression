@@ -149,6 +149,8 @@ CREATE TABLE player_price_snapshots (
     status                       CHAR(1),             -- a=available d=doubtful i=injured s=suspended u=unavailable
     chance_of_playing_next_round SMALLINT,
     news                         TEXT,
+    ep_next                      NUMERIC(5,2),        -- FPL's own official predicted points for the next GW (`elements[].ep_next`) - not historized before this column was added, so N/A for snapshots taken earlier
+    ep_this                      NUMERIC(5,2),        -- FPL's own official predicted points for the current GW (`elements[].ep_this`)
     pulled_at                    TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (season, player_code, snapshot_date)
 );
@@ -214,6 +216,9 @@ CREATE TABLE manager_gameweeks (
     event_transfers_cost INTEGER,
     points_on_bench      INTEGER,
     active_chip          TEXT,
+    event_rank            INTEGER,               -- this gameweek's rank among all entries (`rank` in entry history)
+    percentile_rank       INTEGER,               -- FPL's own bucketed cumulative percentile as of this GW (entry history `percentile_rank`)
+    rank_percentage        NUMERIC(5,2),           -- exact cumulative overall-rank percentile as of this GW (`overall_rank_percentage`)
     pulled_at            TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (entry_id, season, event_id)
 );

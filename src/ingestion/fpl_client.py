@@ -60,6 +60,14 @@ class FPLClient:
         """A manager's squad picks for one gameweek: starting XI, bench, captain/vice, chip used."""
         return self._get(f"entry/{entry_id}/event/{event_id}/picks/")
 
+    def get_entry_history(self, entry_id: int) -> dict:
+        """A manager's full season-to-date gameweek history in one call: `current` is a list of
+        one row per elapsed gameweek with that gameweek's finalized points, rank, and
+        percentile_rank/overall_rank_percentage — the only place FPL publishes those. Use this
+        (not get_entry_picks) to backfill/refresh past gameweeks' final scores, since
+        get_entry_picks only ever reflects the currently-active gameweek."""
+        return self._get(f"entry/{entry_id}/history/")
+
     def get_element_summary(self, player_id: int) -> dict:
         """One player's full gameweek history + upcoming fixtures. Not used in Phase 1's
         bulk pull (bootstrap-static + event/live cover the same ground for all players at

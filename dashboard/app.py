@@ -157,6 +157,22 @@ def load_squad(season: str, entry_id: int) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 @st.cache_data(ttl=300)
+def load_gw_comparison(season: str, entry_id: int) -> pd.DataFrame:
+    """One row per elapsed gameweek: actual points vs GW average/highest, our model's pre-GW
+    prediction, FPL's own ep_next-based prediction, and this GW's percentile — from
+    v_manager_gw_comparison (sql/analytics.sql). model/epl predicted points are NaN for any
+    gameweek where no prediction existed before that gameweek's deadline (structurally true
+    for GW1, and for any gameweek before ep_next capture was added) - the UI must show that
+    as "—", not 0."""
+    conn = get_connection()
+    return pd.read_sql_query(
+        "SELECT * FROM v_manager_gw_comparison WHERE entry_id = %(entry_id)s AND season = %(season)s "
+        "ORDER BY event_id",
+        conn, params={"entry_id": entry_id, "season": season},
+    )
+
+
+@st.cache_data(ttl=300)
 def solve_optimal_squad(season: str, budget: float, value_col: str = "predicted_points"):
     """Cached on (season, budget, value_col) so an unrelated widget interaction elsewhere on
     the page doesn't re-run the ~1s solver - Streamlit re-executes the whole script on every
@@ -418,6 +434,58 @@ if settings.ENTRY_ID:
                     use_container_width=True, hide_index=True,
                 )
                 st.caption(f"Bank after this plan: £{remaining_bank:.1f}m")
+
+            st.divider()
+            st.subheader("Gameweek performance comparison")
+            st.caption(
+                "**Model Prediction** and **FPL Prediction** are only populated once a "
+                "prediction / `ep_next` snapshot existed *before* that gameweek's deadline — "
+                "there's no way to retroactively reconstruct either for earlier gameweeks. "
+                "GW1's Model Prediction is permanently unavailable, not just unbackfilled: the "
+                "model's features need at least one prior current-season gameweek of rolling "
+                "form, so GW1 is excluded from training and backtesting too, every season, not "
+                "just this dashboard. **—** means unavailable, not zero. Both prediction "
+                "columns are for the starting XI you actually fielded that week, not the "
+                "model's own optimal lineup (see 'Recommended starting XI' above for that — the "
+                "two can differ). **Overall Percentile** is your cumulative season-rank "
+                "percentile as of that gameweek (FPL's own figure), not an isolated "
+                "single-gameweek percentile."
+            )
+            comparison = load_gw_comparison(season, settings.ENTRY_ID)
+            if comparison.empty:
+                st.info("No gameweek history ingested yet. Run `python -m src.ingestion.load_manager` first.")
+            else:
+                display = comparison.copy()
+                display["delta_vs_model"] = display["actual_points"] - display["model_predicted_points"]
+
+                def _fmt_partial(points, matched: float) -> str:
+                    if pd.isna(points):
+                        return "—"
+                    suffix = f" ({int(matched)}/11)" if pd.notna(matched) and matched < 11 else ""
+                    return f"{points:.1f}{suffix}"
+
+                display["Model Prediction"] = display.apply(
+                    lambda r: _fmt_partial(r["model_predicted_points"], r["model_players_matched"]), axis=1
+                )
+                display["FPL Prediction"] = display.apply(
+                    lambda r: _fmt_partial(r["epl_predicted_points"], r["epl_players_matched"]), axis=1
+                )
+                display["Δ vs Model"] = display["delta_vs_model"].apply(
+                    lambda v: f"{v:+.1f}" if pd.notna(v) else "—"
+                )
+                display["Overall Percentile"] = display["percentile"].apply(
+                    lambda v: f"Top {v:.0f}%" if pd.notna(v) else "—"
+                )
+                st.dataframe(
+                    display[[
+                        "gw_name", "Model Prediction", "FPL Prediction", "actual_points",
+                        "Δ vs Model", "gw_average", "gw_highest", "Overall Percentile",
+                    ]].rename(columns={
+                        "gw_name": "Gameweek", "actual_points": "Points Scored",
+                        "gw_average": "Gameweek Average", "gw_highest": "Gameweek Highest",
+                    }),
+                    use_container_width=True, hide_index=True,
+                )
 
 with tab_rankings:
     st.subheader("Player rankings")
