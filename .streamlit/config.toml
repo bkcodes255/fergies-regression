@@ -1,0 +1,49 @@
+[theme]
+base = "dark"
+
+# Core palette - dark navy + red accent, inspired by M-Digital's dashboard
+primaryColor = "#E11D2E"
+backgroundColor = "#0F1420"
+secondaryBackgroundColor = "#161B28"
+textColor = "#E6EDF3"
+borderColor = "#232838"
+linkColor = "#E11D2E"
+linkUnderline = false
+
+# Semantic colors (deltas, badges, status)
+greenColor = "#22C55E"
+redColor = "#E11D2E"
+blueColor = "#3B82F6"
+orangeColor = "#F59E0B"
+violetColor = "#A855F7"
+grayColor = "#8B94A8"
+
+# Chart palette - red first (brand), then readable supporting hues
+chartCategoricalColors = ["#E11D2E", "#3B82F6", "#22C55E", "#A855F7", "#F59E0B", "#06B6D4", "#8B94A8"]
+chartSequentialColors = ["#161B28", "#2A1119", "#3F1520", "#551A26", "#6B1E2C", "#812333", "#97283A", "#AD2D41", "#C33247", "#E11D2E"]
+
+# Dataframe styling
+dataframeBorderColor = "#232838"
+dataframeHeaderBackgroundColor = "#161B28"
+
+# Typography - rounded sans, matches the M-Digital look
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@600;700&display=swap"
+codeFont = "'JetBrains Mono':https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
+baseFontSize = 15
+baseFontWeight = 400
+headingFontSizes = ["32px", "24px", "20px", "16px", "14px", "12px"]
+headingFontWeights = [700, 600, 600, 600, 500, 500]
+
+# Shape - rounded cards, pill buttons (matches M-Digital's stat cards + pill tabs)
+baseRadius = "large"
+buttonRadius = "full"
+showWidgetBorder = true
+showSidebarBorder = true
+
+[theme.sidebar]
+backgroundColor = "#0F1420"
+secondaryBackgroundColor = "#161B28"
+textColor = "#E6EDF3"
+borderColor = "#232838"
+primaryColor = "#E11D2E"
