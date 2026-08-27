@@ -96,6 +96,7 @@ def run() -> None:
     print(f"Train: {len(X_train)} rows. Test: {len(X_test)} rows.")
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+    fitted_models: dict[str, GradientBoostingRegressor] = {}
     conn = get_connection()
     try:
         with conn:
@@ -104,6 +105,7 @@ def run() -> None:
                     target_name = f"quantile_{name}"
                     model = GradientBoostingRegressor(loss="quantile", alpha=q, **GBR_PARAMS)
                     model.fit(X_train, y_train)
+                    fitted_models[name] = model
                     pred = model.predict(X_test)
 
                     pinball = pinball_loss(y_test, pred, q)
@@ -131,11 +133,17 @@ def run() -> None:
                     )
 
         # sanity check: floor <= median <= ceiling should hold for (almost) every row - quantile
-        # models are trained independently so crossing is possible but should be rare
-        floor_m = joblib.load(str(MODELS_DIR / "quantile_floor_gbr.joblib"))
-        median_m = joblib.load(str(MODELS_DIR / "quantile_median_gbr.joblib"))
-        ceiling_m = joblib.load(str(MODELS_DIR / "quantile_ceiling_gbr.joblib"))
-        f, m, c = floor_m.predict(X_test), median_m.predict(X_test), ceiling_m.predict(X_test)
+        # models are trained independently so crossing is possible but should be rare.
+        # Uses the models already fitted above (fitted_models), not a disk reload - the
+        # previous version reloaded from static "quantile_floor_gbr.joblib"-style filenames,
+        # which (now that artifact filenames are run-unique, see the comment above) silently
+        # picked up stale, months-old models left over from a much earlier training run
+        # instead of the ones this run just trained. Same root cause as the train.py bug this
+        # session already fixed elsewhere - caught here by the ValueError this raised on the
+        # very first retrain after that fix, not silently.
+        f = fitted_models["floor"].predict(X_test)
+        m = fitted_models["median"].predict(X_test)
+        c = fitted_models["ceiling"].predict(X_test)
         crossing_rate = float(np.mean((f > m) | (m > c)))
         print(f"\nQuantile crossing rate (floor>median or median>ceiling, should be near 0): "
               f"{crossing_rate:.4f}")
