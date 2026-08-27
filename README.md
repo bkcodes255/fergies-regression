@@ -379,9 +379,18 @@ congested run with a recent muscle injury on record" selects for first-team regu
 push through knocks, not a simple risk discount. **Conclusion: this is a volatility signal, not
 a mean-shift signal** — a point-estimate regressor can only move its predicted mean, so it
 structurally can't benefit from a "this one's noisier" signal even though the signal is real.
-The natural next step is wiring these features into the quantile floor/ceiling models instead
-(widen the spread for at-risk players, rather than trying to shift the point estimate) — not
-yet done.
+
+**Confirmed by wiring it into the quantile floor/ceiling models instead**
+(`train_quantile_models.py` already trains on `FEATURE_COLS` directly, so no code change was
+needed there beyond a retrain): the floor-ceiling spread for the ~2% of rows where the
+interaction fires is **4.15 points vs. 2.83 for everyone else — 47% wider**, and the median is
+higher too (0.80 vs. 0.60) — exactly the volatility this signal was supposed to represent,
+showing up in the model type actually built to represent it. Real second bug caught while
+re-running this: the quantile-crossing sanity check at the end of `train_quantile_models.py`
+reloaded floor/median/ceiling from hardcoded static filenames that predated the run-unique-path
+fix above, silently picking up stale months-old models and crashing on a feature-name mismatch
+the first time it ran against the new feature set — fixed by keeping the fitted models in
+memory instead of round-tripping through disk.
 
 Mirrored into `live_features.py` for live serving (`_load_team_congestion`, reusing
 `compute_injury_features`/`is_muscle_tendon_injury` from `historical_features.py` so training
