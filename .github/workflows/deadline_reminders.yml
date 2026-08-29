@@ -24,7 +24,7 @@ jobs:
       # just what src/notify/deadline_scheduler.py and its src/recommendations imports
       # actually touch.
       - name: Install dependencies
-        run: pip install pandas psycopg2-binary python-telegram-bot python-dotenv
+        run: pip install pandas psycopg2-binary sqlalchemy python-telegram-bot python-dotenv
 
       - name: Run deadline scheduler
         env:
