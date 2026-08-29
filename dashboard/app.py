@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -37,9 +38,24 @@ def get_connection():
     # first query and this cached, long-lived connection sits "idle in transaction" between
     # Streamlit reruns - for hours, in practice - holding locks that block unrelated schema
     # migrations elsewhere. This dashboard only ever reads, so there's nothing to commit anyway.
-    conn = psycopg2.connect(settings.DATABASE_URL)
-    conn.autocommit = True
-    return conn
+    #
+    # The retry loop below is load-bearing, not defensive-programming for its own sake: Supabase's
+    # Supavisor pooler tears down our per-tenant connection pool after a short idle window, and the
+    # very first connection after that (i.e. the first visitor after any quiet period) hits a real
+    # Supavisor-side bug - its "SecretChecker" cache is cold, falls back to a one-off auth_query
+    # that spuriously reports "password authentication failed" even with a correct password. Every
+    # attempt immediately after that first one succeeds (confirmed against Supavisor's own logs),
+    # so a short retry clears it reliably without masking a genuinely wrong credential for long.
+    last_exc = None
+    for attempt in range(3):
+        try:
+            conn = psycopg2.connect(settings.DATABASE_URL)
+            conn.autocommit = True
+            return conn
+        except psycopg2.OperationalError as exc:
+            last_exc = exc
+            time.sleep(1.5)
+    raise last_exc
 
 
 @st.cache_data(ttl=300)

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import time
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -47,9 +48,21 @@ TIERS = [("T-24h", 24.0), ("T-3h", 3.0), ("T-30m", 0.5)]
 
 
 def get_connection():
-    conn = psycopg2.connect(settings.DATABASE_URL)
-    conn.autocommit = True
-    return conn
+    # Retry loop covers a real Supavisor-side bug, not generic flakiness: every run here is a
+    # fresh GitHub Actions runner hitting the pooler's per-tenant pool cold, which reliably
+    # triggers a spurious "password authentication failed" on the first attempt (Supavisor's
+    # SecretChecker cache is cold and falls back to a broken one-off auth_query) - the very next
+    # attempt always succeeds. See dashboard/app.py's get_connection() for the full writeup.
+    last_exc = None
+    for attempt in range(3):
+        try:
+            conn = psycopg2.connect(settings.DATABASE_URL)
+            conn.autocommit = True
+            return conn
+        except psycopg2.OperationalError as exc:
+            last_exc = exc
+            time.sleep(1.5)
+    raise last_exc
 
 
 def load_next_deadline(conn) -> dict | None:
