@@ -1,12 +1,13 @@
-# Data (raw pulls and derived data are local-only; schema/dictionary in sql/ and data/ root are tracked)
+# Data (raw pulls and derived data are local-only; schema/dictionary in sql/ and data/ root are
+# tracked. data/historical/ IS tracked despite being "derived" - it's what the deployed
+# dashboard's Model Lab tab needs at runtime, and every file in it is under GitHub's 10MB
+# Git LFS threshold, so plain git is fine)
 data/raw/**
 data/processed/**
-data/historical/**
 data/injuries/**
 data/injury_unmatched_report.csv
 !data/raw/.gitkeep
 !data/processed/.gitkeep
-!data/historical/.gitkeep
 !data/injuries/.gitkeep
 
 # Python
