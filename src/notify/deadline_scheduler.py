@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-import time
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -33,9 +32,9 @@ import pandas as pd
 # default to UTF-8 already, so this is a no-op there.
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
-import psycopg2
 
 from config import settings
+from src.ingestion.db import get_connection as _get_connection
 from src.notify.telegram_bot import send_message
 from src.recommendations.squad_optimizer import best_starting_xi
 from src.recommendations.transfers import compute_free_transfers, suggest_transfer_plan
@@ -48,21 +47,12 @@ TIERS = [("T-24h", 24.0), ("T-3h", 3.0), ("T-30m", 0.5)]
 
 
 def get_connection():
-    # Retry loop covers a real Supavisor-side bug, not generic flakiness: every run here is a
-    # fresh GitHub Actions runner hitting the pooler's per-tenant pool cold, which reliably
-    # triggers a spurious "password authentication failed" on the first attempt (Supavisor's
-    # SecretChecker cache is cold and falls back to a broken one-off auth_query) - the very next
-    # attempt always succeeds. See dashboard/app.py's get_connection() for the full writeup.
-    last_exc = None
-    for attempt in range(3):
-        try:
-            conn = psycopg2.connect(settings.DATABASE_URL)
-            conn.autocommit = True
-            return conn
-        except psycopg2.OperationalError as exc:
-            last_exc = exc
-            time.sleep(1.5)
-    raise last_exc
+    # src.ingestion.db.get_connection() is the shared, retry-wrapped helper (covers a real
+    # Supavisor-side cold-pool auth bug - see its docstring). autocommit=True here is
+    # scheduler-specific: log_sent() below INSERTs with no explicit commit() call, relying on it.
+    conn = _get_connection()
+    conn.autocommit = True
+    return conn
 
 
 def load_next_deadline(conn) -> dict | None:

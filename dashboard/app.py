@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -15,12 +14,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import psycopg2
 import streamlit as st
 
 from config import settings
 from src.features.historical_features import FEATURE_COLS as ALL_HISTORICAL_FEATURE_COLS
 from src.features.historical_features import build_training_frame
+from src.ingestion.db import get_connection, get_engine
 from src.models.experiment import MODEL_TYPES, evaluate_feature_subset, paired_bootstrap_p_value
 from src.models.monte_carlo import simulate_squad, summarize_simulation
 from src.models.train import TEST_SEASON, TRAIN_SEASONS, direct_points_baseline
@@ -31,36 +30,13 @@ from src.recommendations.transfers import compute_free_transfers, suggest_transf
 
 st.set_page_config(page_title="Fergie's Regression", layout="wide")
 
-
-@st.cache_resource
-def get_connection():
-    # autocommit=True is what matters here: without it, psycopg2 opens a transaction on the
-    # first query and this cached, long-lived connection sits "idle in transaction" between
-    # Streamlit reruns - for hours, in practice - holding locks that block unrelated schema
-    # migrations elsewhere. This dashboard only ever reads, so there's nothing to commit anyway.
-    #
-    # The retry loop below is load-bearing, not defensive-programming for its own sake: Supabase's
-    # Supavisor pooler tears down our per-tenant connection pool after a short idle window, and the
-    # very first connection after that (i.e. the first visitor after any quiet period) hits a real
-    # Supavisor-side bug - its "SecretChecker" cache is cold, falls back to a one-off auth_query
-    # that spuriously reports "password authentication failed" even with a correct password. Every
-    # attempt immediately after that first one succeeds (confirmed against Supavisor's own logs),
-    # so a short retry clears it reliably without masking a genuinely wrong credential for long.
-    last_exc = None
-    for attempt in range(3):
-        try:
-            conn = psycopg2.connect(settings.DATABASE_URL)
-            conn.autocommit = True
-            return conn
-        except psycopg2.OperationalError as exc:
-            last_exc = exc
-            time.sleep(1.5)
-    raise last_exc
+# get_connection()/get_engine() come from src/ingestion/db.py - the shared, retry- and
+# pool-health-aware DB helpers every part of this project uses now, not a dashboard-local copy.
 
 
 @st.cache_data(ttl=300)
 def load_player_rankings(season: str) -> pd.DataFrame:
-    conn = get_connection()
+    engine = get_engine()
     df = pd.read_sql_query(
         """
         SELECT
@@ -78,7 +54,7 @@ def load_player_rankings(season: str) -> pd.DataFrame:
             AND pr.event_id = (SELECT MAX(event_id) FROM predictions WHERE season = st.season)
         WHERE st.season = %(season)s
         """,
-        conn, params={"season": season},
+        engine, params={"season": season},
     )
     position_names = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
     df["position"] = df["element_type"].map(position_names)
@@ -89,7 +65,7 @@ def load_player_rankings(season: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def load_fixture_difficulty(season: str) -> pd.DataFrame:
-    conn = get_connection()
+    engine = get_engine()
     return pd.read_sql_query(
         """
         SELECT DISTINCT ON (fd.team_code)
@@ -101,14 +77,13 @@ def load_fixture_difficulty(season: str) -> pd.DataFrame:
         WHERE fd.season = %(season)s
         ORDER BY fd.team_code, fd.kickoff_time
         """,
-        conn, params={"season": season},
+        engine, params={"season": season},
     ).sort_values("fixture_difficulty_score")
 
 
 @st.cache_data(ttl=300)
 def load_horizon_fixtures(season: str, start_gw: int, horizon: int = DEFAULT_HORIZON) -> pd.DataFrame:
-    conn = get_connection()
-    return load_fixture_window(conn, season, start_gw, horizon)
+    return load_fixture_window(get_engine(), season, start_gw, horizon)
 
 
 def with_horizon(rankings_df: pd.DataFrame, season: str) -> pd.DataFrame:
@@ -131,14 +106,14 @@ def load_squad(season: str, entry_id: int) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Returns (squad_df, manager_gw_df). manager_gw_df has ALL ingested gameweeks for this
     entry (needed for compute_free_transfers, which needs the whole event_transfers history,
     not just the latest row) - iloc[0] is still the most recent gameweek, ordered descending."""
-    conn = get_connection()
+    engine = get_engine()
     manager_gw = pd.read_sql_query(
         """
         SELECT * FROM manager_gameweeks
         WHERE entry_id = %(entry_id)s AND season = %(season)s
         ORDER BY event_id DESC
         """,
-        conn, params={"entry_id": entry_id, "season": season},
+        engine, params={"entry_id": entry_id, "season": season},
     )
     squad = pd.read_sql_query(
         """
@@ -164,7 +139,7 @@ def load_squad(season: str, entry_id: int) -> tuple[pd.DataFrame, pd.DataFrame]:
             )
         ORDER BY sp.squad_position
         """,
-        conn, params={"entry_id": entry_id, "season": season},
+        engine, params={"entry_id": entry_id, "season": season},
     )
     position_names = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
     squad["position"] = squad["element_type"].map(position_names)
@@ -180,11 +155,10 @@ def load_gw_comparison(season: str, entry_id: int) -> pd.DataFrame:
     gameweek where no prediction existed before that gameweek's deadline (structurally true
     for GW1, and for any gameweek before ep_next capture was added) - the UI must show that
     as "—", not 0."""
-    conn = get_connection()
     return pd.read_sql_query(
         "SELECT * FROM v_manager_gw_comparison WHERE entry_id = %(entry_id)s AND season = %(season)s "
         "ORDER BY event_id",
-        conn, params={"entry_id": entry_id, "season": season},
+        get_engine(), params={"entry_id": entry_id, "season": season},
     )
 
 
@@ -202,10 +176,9 @@ def solve_optimal_squad(season: str, budget: float, value_col: str = "predicted_
 
 @st.cache_data(ttl=300)
 def load_last_ingested_gw(season: str) -> int | None:
-    conn = get_connection()
     row = pd.read_sql_query(
         "SELECT MAX(event_id) AS gw FROM player_gameweek_stats WHERE season = %(season)s",
-        conn, params={"season": season},
+        get_engine(), params={"season": season},
     )
     return None if row["gw"].isna().all() else int(row["gw"].iloc[0])
 
@@ -743,6 +716,7 @@ with tab_model_lab:
                     ),
                 )
         conn.commit()
+        conn.close()
         st.success(f"Logged {len(MODEL_TYPES)} rows to model_versions (is_experiment=true).")
 
         rows = []
@@ -809,7 +783,6 @@ with tab_model_lab:
                     st.dataframe(perm_df, use_container_width=True, hide_index=True, height=300)
 
     st.markdown("**Experiment ledger**")
-    conn = get_connection()
     ledger = pd.read_sql_query(
         """
         SELECT model_type, features, mae, rmse, r2, diagnostics, trained_at
@@ -818,7 +791,7 @@ with tab_model_lab:
         ORDER BY trained_at DESC
         LIMIT 50
         """,
-        conn,
+        get_engine(),
     )
     if ledger.empty:
         st.caption("No experiments logged yet — run one above.")
