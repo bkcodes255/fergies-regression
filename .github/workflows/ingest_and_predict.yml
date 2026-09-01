@@ -1,0 +1,51 @@
+name: Ingest data and refresh predictions
+
+# Runs entirely on GitHub's runners, same as deadline_reminders.yml - the app-level data refresh
+# (src/ingestion/load.py, src/ingestion/load_manager.py, src/models/predict_live.py) was
+# previously a manual step and silently stopped happening, leaving the DB (and everything
+# downstream: dashboard, deadline reminders) stuck on GW1 data for a week. This closes that gap.
+#
+# Every run is idempotent (upserts keyed on season/event_id/player_code etc.), so overlapping or
+# frequent runs are safe. Fixtures happen Fri-Mon; every 3 hours keeps data fresh without
+# hammering FPL's free public API.
+on:
+  schedule:
+    - cron: "0 */3 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Minimal install for load.py/load_manager.py/predict_live.py's actual import graph -
+      # matplotlib/streamlit/ipykernel/nbclient/nbformat/statsmodels/pulp/python-telegram-bot/
+      # rapidfuzz/beautifulsoup4 aren't touched by this path. scikit-learn/xgboost are needed
+      # even though predict_live.py doesn't import them directly - joblib.load needs the model
+      # classes' defining modules importable to unpickle the saved artifacts.
+      - name: Install dependencies
+        run: pip install requests psycopg2-binary sqlalchemy python-dotenv pandas numpy scikit-learn xgboost joblib
+
+      - name: Pull bootstrap/fixtures/live gameweek stats
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          FPL_SEASON: "2026-27"
+        run: python -m src.ingestion.load
+
+      - name: Pull manager history and squad picks
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          FPL_SEASON: "2026-27"
+          FPL_ENTRY_ID: ${{ secrets.FPL_ENTRY_ID }}
+        run: python -m src.ingestion.load_manager
+
+      - name: Refresh live predictions
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          FPL_SEASON: "2026-27"
+        run: python -m src.models.predict_live
