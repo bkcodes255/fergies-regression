@@ -125,8 +125,10 @@ def run() -> None:
                     # run_id keeps this filename unique per run() invocation - a static name
                     # meant every retrain silently overwrote the file an OLDER model_versions
                     # row still pointed to (same real bug found and fixed in train.py).
-                    artifact_path = str(MODELS_DIR / f"{target_name}_gbr_{run_id}.joblib")
-                    joblib.dump(model, artifact_path)
+                    # Stored in model_versions as just the filename - see train.py's matching comment.
+                    artifact_filename = f"{target_name}_gbr_{run_id}.joblib"
+                    joblib.dump(model, MODELS_DIR / artifact_filename)
+                    artifact_path = artifact_filename
                     _record_model_version(
                         cur, "gradient_boosting_quantile", target_name, feature_cols,
                         {**GBR_PARAMS, "alpha": q}, pinball, artifact_path,

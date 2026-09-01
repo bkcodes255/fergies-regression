@@ -41,6 +41,7 @@ import json
 import joblib
 import pandas as pd
 
+from config.settings import MODELS_DIR
 from src.features.historical_features import HISTORICAL_DIR, build_training_frame
 from src.ingestion.db import get_connection
 from src.models.predict_live import get_best_model
@@ -72,7 +73,7 @@ def build_predictions_frame(conn, season: str = BACKTEST_SEASON) -> pd.DataFrame
         model_id, model_type, features_json, artifact_path = get_best_model(cur)
     feature_cols = json.loads(features_json) if isinstance(features_json, str) else features_json
     print(f"Using model_id={model_id} ({model_type}), {len(feature_cols)} features, from {artifact_path}")
-    model = joblib.load(artifact_path)
+    model = joblib.load(MODELS_DIR / artifact_path)
 
     df = build_training_frame()
     season_df = df[(df["season"] == season) & (df["gw_number"] > 1)].copy()

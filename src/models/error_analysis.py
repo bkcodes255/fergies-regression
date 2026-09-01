@@ -16,6 +16,7 @@ import joblib
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, r2_score
 
+from config.settings import MODELS_DIR
 from src.features.historical_features import build_training_frame
 from src.ingestion.db import get_connection
 from src.models.predict_live import get_best_model
@@ -32,7 +33,7 @@ def load_deployed_model():
     finally:
         conn.close()
     feature_cols = json.loads(features_json) if isinstance(features_json, str) else features_json
-    model = joblib.load(artifact_path)
+    model = joblib.load(MODELS_DIR / artifact_path)
     return model, feature_cols, model_id, model_type, artifact_path
 
 

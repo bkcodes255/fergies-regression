@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
+from config.settings import MODELS_DIR
 from src.features.historical_features import build_training_frame
 from src.ingestion.db import get_connection
 from src.models.train import TEST_SEASON, direct_points_baseline
@@ -56,7 +57,7 @@ def run() -> None:
                 print(f"No trained {model_type} model found - skipping.")
                 continue
             model_id, feature_cols, artifact_path = row
-            model = joblib.load(artifact_path)
+            model = joblib.load(MODELS_DIR / artifact_path)
             X_test = test_df[feature_cols].fillna(0.0)
             predictions[model_type] = pd.Series(model.predict(X_test), index=test_df.index)
             print(f"{model_type}: model_id={model_id}, {len(feature_cols)} features, {artifact_path}")

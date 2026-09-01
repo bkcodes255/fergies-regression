@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 
 import joblib
 import numpy as np
@@ -37,12 +36,12 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from xgboost import XGBRegressor
 
+from config.settings import MODELS_DIR
 from src.features.historical_features import FEATURE_COLS, build_training_frame
 from src.ingestion.db import get_connection
 
 TRAIN_SEASONS = ["2020-21", "2021-22", "2022-23", "2023-24", "2024-25"]
 TEST_SEASON = "2025-26"
-MODELS_DIR = Path(__file__).resolve().parent.parent.parent / "models"
 
 RF_PARAMS = {"n_estimators": 200, "max_depth": 6, "min_samples_leaf": 10, "random_state": 42, "n_jobs": -1}
 # max_depth=8/min_samples_leaf=5 was the original Phase 4 choice. A 5-fold walk-forward grid
@@ -123,8 +122,12 @@ def train_target(df: pd.DataFrame, target_col: str, target_name: str, baseline_c
             # found 2026-08-26: predict_live.py crashed with an XGBoost feature-count mismatch
             # because model_id=79's "best by RMSE" row (45 features) had its file silently
             # replaced by two later retrains (49, then 54 features) before it was ever served.
-            artifact_path = str(MODELS_DIR / f"{target_name}_{model_type}_{run_id}.joblib")
-            joblib.dump(model, artifact_path)
+            # Stored in model_versions as just the filename (resolved against
+            # config.settings.MODELS_DIR at load time) so a model trained here loads on any
+            # machine/CI runner that has this file checked out, not just this one.
+            artifact_filename = f"{target_name}_{model_type}_{run_id}.joblib"
+            joblib.dump(model, MODELS_DIR / artifact_filename)
+            artifact_path = artifact_filename
 
         hyperparams = RF_PARAMS if model_type == "random_forest" else XGB_PARAMS if model_type == "xgboost" else None
         _record_model_version(cur, model_type, target_name, feature_cols, hyperparams, metrics, artifact_path)

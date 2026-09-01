@@ -9,6 +9,11 @@ from dotenv import load_dotenv
 REPO_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(REPO_ROOT / ".env")
 
+# model_versions.artifact_path is stored relative to this (just the filename) so a model
+# trained on one machine can be loaded from any checkout - previously an absolute path baked
+# in at train time, which only ever resolved on the machine that trained it.
+MODELS_DIR = REPO_ROOT / "models"
+
 DATABASE_URL = os.environ.get("DATABASE_URL")
 SEASON = os.environ.get("FPL_SEASON", "2026-27")
 _entry_id = os.environ.get("FPL_ENTRY_ID")

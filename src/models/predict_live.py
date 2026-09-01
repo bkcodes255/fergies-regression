@@ -75,7 +75,7 @@ def get_best_quantile_model(cur, target: str):
 def _load_and_predict(conn, season, row):
     model_id, model_type, features_json, artifact_path = row
     feature_cols = json.loads(features_json) if isinstance(features_json, str) else features_json
-    model = joblib.load(artifact_path)
+    model = joblib.load(settings.MODELS_DIR / artifact_path)
     meta, X = build_live_feature_frame(conn, season, feature_cols)
     return model_id, model_type, meta, X, model
 

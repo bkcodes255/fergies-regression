@@ -27,4 +27,32 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
-*.joblib
+
+# Model artifacts: ignored by default (train.py/train_haul_classifier.py/train_quantile_models.py
+# produce a run-id'd file per training run, most of which are superseded and stay local-only),
+# but the specific files model_versions currently references ARE tracked - CI (predict_live.py,
+# ingest_and_predict.yml) and any fresh checkout need them on disk to actually load a model.
+# After retraining and deciding a new artifact should be deployed, `git add -f` the new file
+# (and drop the old one from this allowlist once no model_versions row still points to it).
+models/*.joblib
+!models/haul_10plus_logistic_regression.joblib
+!models/haul_10plus_random_forest.joblib
+!models/haul_10plus_xgboost.joblib
+!models/haul_6plus_logistic_regression.joblib
+!models/haul_6plus_random_forest.joblib
+!models/haul_6plus_xgboost.joblib
+!models/minutes_linear_regression.joblib
+!models/minutes_random_forest.joblib
+!models/minutes_xgboost.joblib
+!models/points_per_90_linear_regression.joblib
+!models/points_per_90_random_forest.joblib
+!models/points_per_90_xgboost.joblib
+!models/quantile_ceiling_gbr.joblib
+!models/quantile_ceiling_gbr_20260826T235328628580.joblib
+!models/quantile_floor_gbr.joblib
+!models/quantile_floor_gbr_20260826T235328628580.joblib
+!models/quantile_median_gbr.joblib
+!models/quantile_median_gbr_20260826T235328628580.joblib
+!models/total_points_direct_linear_regression.joblib
+!models/total_points_direct_random_forest.joblib
+!models/total_points_direct_xgboost.joblib
