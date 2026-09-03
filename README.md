@@ -410,6 +410,86 @@ up the 60 already-stale rows by nulling their now-incorrect `artifact_path` (sam
 Model Lab's experiment rows already use to opt out of `predict_live.get_best_model`'s
 selection) rather than deleting the historical record.
 
+**Phase 7.6 — Volatility/trend/xG-team-form feature experiment** (2026-09-03, complete — honest
+null result, not adopted)
+
+Prompted by an external review of the model's metrics: with R²≈0.32 and 45→49 features barely
+beating 13, was the ceiling really "not enough features," or something else? Three specific,
+mechanistically-argued feature families were built and tested rather than speculated about:
+
+- **Volatility** (`points_std5`, `goals_std5`, `assists_std5`, `ict_std5`, `xg_std5`,
+  `max_points_last5`) — a rolling MEAN can't distinguish "5.5 every week" from "0, 0, 0, 0, 28";
+  only the spread does, and this project already has quantile/haul models built specifically to
+  use a volatility signal a point-estimate regressor structurally can't (`injury_congestion_risk`
+  in Phase 7.5 already proved that pattern works once).
+- **Regression-to-the-mean** (`goals_minus_xg_roll5`, `assists_minus_xa_roll5`) — actual output
+  vs. the underlying chance quality that produced it, separating "playing well" from
+  "running hot/cold."
+- **Trend + xG-based team form** (`*_trend_3v5` momentum deltas, `own`/`opp_xg_attack_form`,
+  `own`/`opp_xg_defense_form` alongside the existing goals-based form, and an explicit
+  `matchup_xg_x_opp_xga` player-x-opponent interaction term).
+
+All leak-free (`shift(1)` before rolling, same discipline as every other feature here) and
+correctly zeroed for 2020-21/2021-22 (no xG-family data at all) — verified directly against the
+156k-row training frame before any model was fit.
+
+Evaluated properly, not just once: the full 5-fold walk-forward harness
+(`notebooks/08_cross_validation.ipynb`'s split) across all three targets' model types, **plus**
+the haul classifiers and quantile floor/ceiling spread on the real deployed split — the two
+model types the volatility hypothesis was actually about, not just the mean regressor.
+
+**Honest result: no meaningful movement anywhere.**
+- 5-fold mean R² (`total_points_direct`): XGBoost 0.2979 → 0.2957 (volatility+regression arm) →
+  0.2975 (+ trend/team-xG arm); Random Forest 0.2987 → 0.2984 → 0.2982; linear regression
+  0.2900 → 0.2926 → 0.2907. Every delta is under 0.003 R², against a fold-to-fold std of
+  0.018-0.026 — noise, not signal, in either direction.
+- The real deployed split (train on 5 seasons, test on 2025-26) moved the same way: XGBoost
+  0.3286 → 0.3264 → 0.3280 — consistent with the CV folds, not a lucky/unlucky single split.
+- Haul classifiers (XGBoost, same split): ROC-AUC/Brier for both `haul_6plus` and `haul_10plus`
+  were unchanged to 3 decimal places, and the trend/team-xG arm's numbers were IDENTICAL to the
+  volatility arm's — a real, informative finding on its own: `xg_per90_trend_3v5` etc. are exact
+  linear combinations of already-present `roll3`/`roll5` columns, and XGBoost's trees can
+  already approximate that difference via two sequential splits on the raw ingredients, so an
+  explicit trend feature gives the tree model nothing linear regression's coefficients couldn't
+  already infer on their own either.
+- Quantile floor-ceiling spread (the volatility hypothesis's actual target): 2.748 → 2.737 →
+  2.740 mean points — if anything marginally NARROWER with the volatility features added, not
+  wider. Unlike `injury_congestion_risk` (Phase 7.5), which flagged a small, genuinely-distinct
+  ~2% subset of rows as structurally noisier, these std/max features are highly correlated with
+  the rolling means already in the model (a player who scores more also naturally has higher
+  variance in raw counts) — so they carry little information the model didn't already have
+  under a different name.
+
+**Not adopted** — `FEATURE_COLS` is unchanged; the new columns stay computed in
+`historical_features.py` (harmless, and an honest record of what was tried) but aren't wired
+into training, Model Lab's toggle list, or live serving. This reinforces the same conclusion
+Phase 6.5/6.6/7.5 kept landing on from different angles: the ceiling here isn't feature count,
+it's the small number of genuinely orthogonal signals FPL's own data actually contains, and the
+squared-error point-estimate objective's structural blindness to skewed outcomes (already
+addressed the correct way, via the haul classifiers and quantile models, not by feeding the
+mean regressor more numbers).
+
+**Shot-level "opportunity" features (shots, key passes, big chances, touches in the box) —
+investigated, blocked, not built.** FPL's own data (`merged_gw.csv`, all 6 seasons) has never
+contained anything at this granularity — confirmed by checking every column name across every
+season, not assumed. The natural next step, sourcing it from Understat or FBref (both expose
+shot-level/touches data FPL doesn't), was investigated directly: all three candidate sources
+(Understat, FBref, football-data.co.uk) are blocked by this development environment's network
+egress policy — confirmed via both a direct request and a fetch tool, not inferred. This is an
+environment/session network policy, not a statement that the data is unreachable in general;
+building this for real needs either a development environment with broader egress, or doing the
+scrape-and-match work from a machine that has it (a local Claude Code session, or a GitHub
+Actions runner like `ingest_and_predict.yml` already uses for live ingestion). The matching
+problem itself would be nontrivial and shouldn't be underestimated: joining an external site's
+own player identities to this project's stable `code` space needs the same kind of multi-pass
+name/club matcher `injury_matching.py` already built for the Kaggle injury backfill (96.5%
+matched there, not 100% — some manual/fuzzy gap should be expected here too), applied across
+six seasons and roughly 600+ players per season, plus a leak-free join discipline (only a
+strictly-prior fixture's shot data is visible to a row) matching everything else in this file.
+Worth doing, but it's a data-acquisition + entity-resolution project on the scale of Phase 7.5's
+injury-data work, not a feature-engineering afternoon — scoped here rather than attempted blind
+without being able to see a single real response from the source.
+
 ## Build phases
 
 1. **Foundation** — FPL API client, raw snapshots, Postgres schema, manual ingestion
