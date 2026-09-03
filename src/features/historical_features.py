@@ -224,7 +224,14 @@ def _attach_injury_features(df: pd.DataFrame, injuries: pd.DataFrame) -> pd.Data
     for col in ("days_since_last_injury", "injuries_last_365d", "is_returning_from_injury", "injury_data_available"):
         df[col] = features[col]
 
-    muscle_injuries = injuries[injuries["injury_type"].map(is_muscle_tendon_injury)]
+    # Guard against a real pandas edge case (confirmed on pandas 3.0.5): boolean-mask filtering
+    # an ALREADY-zero-row DataFrame drops every column, not just rows - `injuries` is zero-row
+    # only on a fresh clone/CI run before the Kaggle injury backfill has ever been loaded, but
+    # when it happens this silently strips player_code/injury_type and crashes
+    # compute_injury_features below with a KeyError instead of the intended "nobody has any
+    # injury history yet" no-op. injuries is already empty in that case, so reusing it directly
+    # (same columns, zero rows) sidesteps the buggy filter rather than working around pandas.
+    muscle_injuries = injuries if injuries.empty else injuries[injuries["injury_type"].map(is_muscle_tendon_injury)]
     muscle_features = compute_injury_features(df["code"], df["kickoff_time"], muscle_injuries)
     df["muscle_injuries_last_365d"] = muscle_features["injuries_last_365d"]
 
@@ -260,22 +267,48 @@ def _load_code_mapping(season_dir: Path) -> dict:
 def _extract_fixture_results(df: pd.DataFrame) -> pd.DataFrame:
     """One row per (team, fixture): that team's own goals for/against and home/away for the
     match. Deduped from the per-player rows - every player on a team shares an identical
-    view of their own team's fixture-level facts, so this just picks out the distinct ones."""
+    view of their own team's fixture-level facts, so this just picks out the distinct ones.
+
+    Also pulls each team's fixture-level expected-goals-for/against, from the same per-player
+    rows before dedup (unlike goals_for/against, xG isn't a shared fixture-level fact - it's a
+    per-player stat that has to be aggregated up to the team). xg_for is the SUM of the team's
+    own players' expected_goals for that fixture - standard practice: a team's aggregate xG is
+    the sum of its shots' individual xG, and FPL's per-player expected_goals already IS each
+    player's own shots' xG that match. xg_against is the MAX (not sum) of the team's players'
+    expected_goals_conceded - FPL attributes the full match xG-conceded-while-on-pitch figure
+    IDENTICALLY to every player who was on the pitch for it, not divided per player, so summing
+    would multiply-count the same conceded chances by however many outfield players + GK shared
+    the pitch for them. Whoever played closest to the full 90 (usually the ever-present keeper)
+    carries the fullest, most representative reading, which max() picks out without needing to
+    know who specifically played every minute."""
     cols = ["fixture", "team", "opponent_team", "was_home", "team_h_score", "team_a_score", "kickoff_time"]
     fx = df[cols].drop_duplicates(subset=["fixture", "team"]).copy()
     fx["kickoff_time"] = pd.to_datetime(fx["kickoff_time"])
     fx["goals_for"] = np.where(fx["was_home"], fx["team_h_score"], fx["team_a_score"])
     fx["goals_against"] = np.where(fx["was_home"], fx["team_a_score"], fx["team_h_score"])
-    return fx[["fixture", "team", "opponent_team", "was_home", "kickoff_time", "goals_for", "goals_against"]]
+
+    xg_agg = df.groupby(["fixture", "team"]).agg(
+        xg_for=("expected_goals", "sum"), xg_against=("expected_goals_conceded", "max"),
+    ).reset_index()
+    fx = fx.merge(xg_agg, on=["fixture", "team"], how="left")
+    return fx[["fixture", "team", "opponent_team", "was_home", "kickoff_time",
+                "goals_for", "goals_against", "xg_for", "xg_against"]]
 
 
-def _compute_team_form(fixture_results: pd.DataFrame, window: int = TEAM_FORM_WINDOW) -> pd.DataFrame:
+def _compute_team_form(fixture_results: pd.DataFrame, window: int = TEAM_FORM_WINDOW,
+                        has_xg: bool = True) -> pd.DataFrame:
     """Leak-free rolling attack/defense form per team, ordered by kickoff time - shift(1)
     before rolling, same no-leakage discipline as every other feature in this module, so a
     team's form entering a fixture never includes that fixture's own result. A team's first
     fixture(s) of the season (no prior result to roll over) get the league-average goals
     figure instead of 0 - 0 would read as 'guaranteed to face the weakest possible
-    attack/defense', a worse assumption than 'unknown, assume average'."""
+    attack/defense', a worse assumption than 'unknown, assume average'.
+
+    Also computes the same rolling window over xg_for/xg_against (has_xg=False zeroes it
+    instead - pre-2022-23 seasons never tracked the xG-family stats at all, same convention as
+    every other xG-derived feature in this module) - chance quality created/conceded, which is
+    less noisy than the actual score (finishing variance) for reading a team's true
+    attacking/defensive level."""
     fixture_results = fixture_results.sort_values(["team", "kickoff_time"]).copy()
     league_avg_goals = fixture_results["goals_for"].mean()
     grouped = fixture_results.groupby("team", sort=False)
@@ -287,6 +320,20 @@ def _compute_team_form(fixture_results: pd.DataFrame, window: int = TEAM_FORM_WI
         grouped["goals_against"].transform(lambda s: s.shift(1).rolling(window, min_periods=1).mean())
         .fillna(league_avg_goals)
     )
+    if has_xg:
+        league_avg_xg_for = fixture_results["xg_for"].mean()
+        league_avg_xg_against = fixture_results["xg_against"].mean()
+        fixture_results["xg_attack_form"] = (
+            grouped["xg_for"].transform(lambda s: s.shift(1).rolling(window, min_periods=1).mean())
+            .fillna(league_avg_xg_for)
+        )
+        fixture_results["xg_defense_form"] = (
+            grouped["xg_against"].transform(lambda s: s.shift(1).rolling(window, min_periods=1).mean())
+            .fillna(league_avg_xg_against)
+        )
+    else:
+        fixture_results["xg_attack_form"] = 0.0
+        fixture_results["xg_defense_form"] = 0.0
     return fixture_results
 
 
@@ -315,7 +362,7 @@ def _compute_fixture_congestion(fixture_results: pd.DataFrame) -> pd.DataFrame:
     return fixture_results
 
 
-def _attach_fixture_features(df: pd.DataFrame) -> pd.DataFrame:
+def _attach_fixture_features(df: pd.DataFrame, has_xg: bool) -> pd.DataFrame:
     """Adds was_home + each row's own team's and opponent's rolling attack/defense form
     (leak-free as of entering that specific fixture) to the per-player-fixture rows, before
     they get aggregated to one row per (season, element, GW). Unlike the rolling player-stat
@@ -323,17 +370,25 @@ def _attach_fixture_features(df: pd.DataFrame) -> pd.DataFrame:
     upcoming fixture and the opponent's rolling form going into it are legitimately known
     before kickoff, so no additional lag is needed on top of _compute_team_form's own shift.
 
+    Also adds each side's rolling expected-goals-for/against form (own_xg_attack_form,
+    own_xg_defense_form, opp_xg_attack_form, opp_xg_defense_form) alongside the actual-goals
+    form above - see _compute_team_form's docstring for why xG form is worth having
+    separately from the goals-based version.
+
     Also adds the player's OWN team's fixture congestion (days_since_last_match,
     matches_last_14d, is_congested) - congestion is specifically about the player's own side's
     fatigue/rotation risk, not the opponent's."""
     fixture_results = _extract_fixture_results(df)
-    form = _compute_team_form(fixture_results)
-    own = form[["fixture", "team", "attack_form", "defense_form"]].rename(
-        columns={"attack_form": "own_attack_form", "defense_form": "own_defense_form"}
-    )
-    opp = form[["fixture", "team", "attack_form", "defense_form"]].rename(
-        columns={"team": "opponent_team", "attack_form": "opp_attack_form", "defense_form": "opp_defense_form"}
-    )
+    form = _compute_team_form(fixture_results, has_xg=has_xg)
+    form_cols = ["fixture", "team", "attack_form", "defense_form", "xg_attack_form", "xg_defense_form"]
+    own = form[form_cols].rename(columns={
+        "attack_form": "own_attack_form", "defense_form": "own_defense_form",
+        "xg_attack_form": "own_xg_attack_form", "xg_defense_form": "own_xg_defense_form",
+    })
+    opp = form[form_cols].rename(columns={
+        "team": "opponent_team", "attack_form": "opp_attack_form", "defense_form": "opp_defense_form",
+        "xg_attack_form": "opp_xg_attack_form", "xg_defense_form": "opp_xg_defense_form",
+    })
     df = df.merge(own, on=["fixture", "team"], how="left")
     df = df.merge(opp, on=["fixture", "opponent_team"], how="left")
     df["was_home"] = df["was_home"].astype(float)
@@ -383,9 +438,10 @@ def _load_season(season_dir: Path, injuries: pd.DataFrame | None = None,
 
     if attach_extra_features:
         df["team"] = df["team"].map(_load_team_name_mapping(season_dir))
-        df = _attach_fixture_features(df)
+        df = _attach_fixture_features(df, has_xg)
         df = _attach_injury_features(df, injuries if injuries is not None else _cached_player_injuries())
         extra_cols = ["was_home", "own_attack_form", "own_defense_form", "opp_attack_form", "opp_defense_form",
+                      "own_xg_attack_form", "own_xg_defense_form", "opp_xg_attack_form", "opp_xg_defense_form",
                       "days_since_last_match", "matches_last_14d", "is_congested"] + INJURY_COLS
         agg.update({col: "mean" for col in extra_cols})
 
@@ -445,6 +501,10 @@ def _prior_rolling(series: pd.Series, window: int, agg: str) -> pd.Series:
         return shifted.rolling(window, min_periods=1).mean()
     if agg == "sum":
         return shifted.rolling(window, min_periods=1).sum()
+    if agg == "std":
+        return shifted.rolling(window, min_periods=2).std()
+    if agg == "max":
+        return shifted.rolling(window, min_periods=1).max()
     raise ValueError(agg)
 
 
@@ -477,6 +537,34 @@ def _engineer_group(g: pd.DataFrame) -> pd.DataFrame:
         g[f"dc_roll{window}"] = _prior_rolling(g["defensive_contribution"], window, "mean")
         g[f"starts_rate_roll{window}"] = _prior_rolling(g["starts"], window, "mean")
 
+    # Volatility (window=5 only): a rolling MEAN can't distinguish "5.5 every week" from
+    # "0, 0, 0, 0, 28" - both average the same, but only one has real haul potential. std/max
+    # of the recent window surfaces that spread directly, for the quantile/haul models this
+    # project already has built to consume a volatility signal a single point-estimate
+    # regressor structurally can't use (same lesson as injury_congestion_risk's "volatility,
+    # not mean-shift" finding - see historical_features.py's module docstring).
+    g["points_std5"] = _prior_rolling(g["total_points"], 5, "std")
+    g["goals_std5"] = _prior_rolling(g["goals_scored"], 5, "std")
+    g["assists_std5"] = _prior_rolling(g["assists"], 5, "std")
+    g["ict_std5"] = _prior_rolling(g["ict_index"], 5, "std")
+    g["xg_std5"] = _prior_rolling(g["expected_goals"], 5, "std")
+    g["max_points_last5"] = _prior_rolling(g["total_points"], 5, "max")
+
+    # Regression-to-the-mean: actual output vs. the underlying chance quality that produced it,
+    # over the same recent window - separates "playing well" (xG matches output) from
+    # "running hot/cold" (output diverging from xG, likely to regress).
+    g["goals_minus_xg_roll5"] = g["goals_per90_roll5"] - g["xg_per90_roll5"]
+    g["assists_minus_xa_roll5"] = g["assists_per90_roll5"] - g["xa_per90_roll5"]
+
+    # Trend/momentum: the recent 3-game window vs. the wider 5-game window, so the model gets
+    # trajectory (improving/declining) as an explicit signal, not just two separately-windowed
+    # levels it has to infer a difference between on its own.
+    g["points_per90_trend_3v5"] = g["points_per90_roll3"] - g["points_per90_roll5"]
+    g["xg_per90_trend_3v5"] = g["xg_per90_roll3"] - g["xg_per90_roll5"]
+    g["xa_per90_trend_3v5"] = g["xa_per90_roll3"] - g["xa_per90_roll5"]
+    g["minutes_trend_3v5"] = g["minutes_roll3"] - g["minutes_roll5"]
+    g["ict_index_trend_3v5"] = g["ict_index_roll3"] - g["ict_index_roll5"]
+
     prior_minutes_sum = g["minutes"].shift(1).expanding().sum()
     prior_points_sum = g["total_points"].shift(1).expanding().sum()
     g["season_points_per90_avg"] = np.where(
@@ -500,9 +588,22 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
         result[col] = result[col].fillna(0.0)
 
     xg_cols = [c for c in result.columns if c.startswith(("xg_per90_roll", "xa_per90_roll", "xgc_per90_roll", "starts_rate_roll"))]
+    xg_cols += [
+        "xg_std5", "goals_minus_xg_roll5", "assists_minus_xa_roll5",
+        "xg_per90_trend_3v5", "xa_per90_trend_3v5",
+    ]
     for col in xg_cols:
         result.loc[result["xg_data_available"] == 0, col] = 0.0
         result[col] = result[col].fillna(0.0)
+
+    # Player x opponent matchup interaction: a high-xG player facing a leaky defense is a
+    # better opportunity than the same two facts read separately - this makes that product
+    # explicit rather than leaving a tree model to rediscover it via sequential splits (same
+    # rationale as injury_congestion_risk's explicit product term). Both operands are already
+    # xg_data_available-gated to 0.0 above/via own_xg_attack_form's has_xg gating in
+    # _compute_team_form, so this is correctly 0 for pre-2022-23 seasons without any extra
+    # gating needed here.
+    result["matchup_xg_x_opp_xga"] = result["xg_per90_roll5"] * result["opp_xg_defense_form"]
 
     prior_frames = []
     for season in result["season"].unique():
