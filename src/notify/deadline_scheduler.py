@@ -98,7 +98,7 @@ def load_rankings(conn, season: str) -> pd.DataFrame:
     df = pd.read_sql_query(
         """
         SELECT
-            st.player_code, p.web_name, pos.element_type, t.short_name AS team,
+            st.player_code, p.web_name, pos.element_type, pos.fpl_id, t.short_name AS team,
             st.now_cost, st.status,
             pr.predicted_points
         FROM v_player_season_totals st
@@ -126,7 +126,7 @@ def load_squad(conn, season: str, entry_id: int) -> tuple[pd.DataFrame, pd.DataF
     squad = pd.read_sql_query(
         """
         SELECT
-            sp.player_code, sp.multiplier, p.web_name, pos.element_type,
+            sp.player_code, sp.multiplier, p.web_name, pos.element_type, pos.fpl_id,
             t.short_name AS team, lp.now_cost, pr.predicted_points
         FROM squad_picks sp
         JOIN players p ON p.player_code = sp.player_code

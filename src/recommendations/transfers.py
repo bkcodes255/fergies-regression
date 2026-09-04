@@ -84,6 +84,46 @@ def suggest_transfers(
     return pd.DataFrame(suggestions).sort_values("net_gain", ascending=False).reset_index(drop=True)
 
 
+def validate_transfer(
+    squad: pd.DataFrame, rankings: pd.DataFrame, bank: float, out_code: int, in_code: int,
+) -> str | None:
+    """Checks whether swapping out_code (must be in squad) for in_code (must be in rankings,
+    not already owned) is a legal FPL transfer - the same rules _best_single_transfer applies
+    while searching for a suggestion (position match, budget, MAX_PER_TEAM, availability),
+    checked here against one specific pair a caller already picked rather than searched for.
+    Returns None if legal, or a human-readable reason string if not.
+    """
+    out_rows = squad[squad["player_code"] == out_code]
+    if out_rows.empty:
+        return "That player isn't in your squad."
+    current = out_rows.iloc[0]
+
+    if in_code in set(squad["player_code"]):
+        return "You already own that player."
+    in_rows = rankings[rankings["player_code"] == in_code]
+    if in_rows.empty:
+        return "That player isn't in the player pool."
+    candidate = in_rows.iloc[0]
+
+    if candidate["position"] != current["position"]:
+        return (
+            f"Position mismatch: {current['web_name']} is {current['position']}, "
+            f"{candidate['web_name']} is {candidate['position']}."
+        )
+    budget = current["price"] + bank
+    if candidate["price"] > budget:
+        return f"Not enough budget: needs £{candidate['price']:.1f}m, you have £{budget:.1f}m available."
+    if candidate["status"] != "a":
+        return f"{candidate['web_name']} is not available (status={candidate['status']})."
+
+    team_counts = squad["team"].value_counts().to_dict()
+    count_if_bought = team_counts.get(candidate["team"], 0) + (0 if candidate["team"] == current["team"] else 1)
+    if count_if_bought > MAX_PER_TEAM:
+        return f"Would exceed the {MAX_PER_TEAM}-per-club limit for {candidate['team']}."
+
+    return None
+
+
 def _best_single_transfer(squad: pd.DataFrame, rankings: pd.DataFrame, bank: float,
                             team_counts: dict, excluded_buys: set, value_col: str):
     """One step of the greedy planner: the single best (sell, buy) pair across the whole

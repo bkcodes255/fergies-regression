@@ -1,8 +1,11 @@
-"""Telegram bot — Step 1: connectivity only. Confirms the bot token works and captures your
-chat_id (needed to send you proactive deadline notifications later, since the bot can't message
-you first without knowing where to send it). No deadline scheduling, no LLM negotiation, no FPL
-writes here yet — this just proves the wire works, same staged-verification approach used for
-the FPL auth/write path.
+"""Telegram bot entrypoint. Wires up the connectivity-only /start + echo handlers (which confirm
+the bot token works and capture your chat_id, needed for deadline_scheduler.py's proactive
+notifications) alongside the instruction-execution commands in src/notify/bot_commands.py
+(/captain, /transfer) that act on the live FPL account after an explicit yes/no confirmation.
+
+This is a long-running process (blocking run_polling() below) - unlike deadline_scheduler.py,
+which GitHub Actions runs on a schedule, this needs to actually stay up somewhere continuously
+to receive messages (see the Dockerfile/fly.toml at the repo root for one way to deploy it).
 
 Setup:
   1. In Telegram, message @BotFather -> /newbot -> follow the prompts -> copy the token it gives you.
@@ -21,6 +24,7 @@ from telegram import Bot, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from config import settings
+from src.notify.bot_commands import captain_command, handle_confirmation, transfer_command
 
 
 async def send_message(text: str) -> None:
@@ -44,6 +48,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # A pending /captain or /transfer waits here for a plain-text yes/no reply before falling
+    # through to plain echo - see src/notify/bot_commands.py for why that confirmation step
+    # exists at all (never fire a write without one).
+    if await handle_confirmation(update, context):
+        return
     chat_id = update.effective_chat.id
     text = update.message.text
     print(f"Received message from chat_id={chat_id}: {text!r}")
@@ -56,6 +65,8 @@ def run() -> None:
 
     app = Application.builder().token(settings.TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("captain", captain_command))
+    app.add_handler(CommandHandler("transfer", transfer_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
 
     print("Bot starting (long polling) - go message it in Telegram now. Ctrl+C to stop.")

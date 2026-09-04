@@ -29,6 +29,7 @@ from config import settings
 LOGIN_URL = "https://users.premierleague.com/accounts/login/"
 ME_URL = "https://fantasy.premierleague.com/api/me/"
 MY_TEAM_URL = "https://fantasy.premierleague.com/api/my-team/{entry_id}/"
+TRANSFERS_URL = "https://fantasy.premierleague.com/api/transfers/"
 USER_AGENT = "Mozilla/5.0 (fergies-regression fpl_write login test; personal account automation)"
 TIMEOUT_SECONDS = 15
 
@@ -184,6 +185,54 @@ def set_captain(
     ]
     url = MY_TEAM_URL.format(entry_id=entry_id)
     return session.post(url, json={"picks": picks_payload}, timeout=TIMEOUT_SECONDS)
+
+
+def build_transfer_payload(
+    entry_id: int, event_id: int, out_element: int, in_element: int,
+    purchase_price: int, selling_price: int,
+) -> dict:
+    """Builds the /api/transfers/ payload without sending it - the only genuinely SAFE way to
+    inspect what a transfer call would send. Do NOT treat "confirmed": False as a safe preview:
+    confirmed empirically on 2026-08-26 (scripts/test_transfer_dryrun.py, scripts/
+    revert_transfer.py) that FPL executes the transfer for real regardless of the confirmed
+    flag's value. That mistake cost a real, non-refundable transfer plus a locked-in -4 hit for
+    the gameweek, with no API-level undo - recorded as a hard rule since: never POST to this
+    endpoint outside a real, deliberate, user-approved submission. This function exists so a
+    caller can inspect/log the exact payload before that POST happens, without touching the
+    network at all."""
+    return {
+        "confirmed": True,
+        "entry": entry_id,
+        "event": event_id,
+        "transfers": [
+            {
+                "element_in": in_element,
+                "element_out": out_element,
+                "purchase_price": purchase_price,
+                "selling_price": selling_price,
+            }
+        ],
+        "wildcard": False,
+        "freehit": False,
+    }
+
+
+def submit_transfer(
+    session: requests.Session, entry_id: int, event_id: int,
+    out_element: int, in_element: int, purchase_price: int, selling_price: int,
+) -> requests.Response:
+    """POSTs a single transfer to /api/transfers/ - REAL and IRREVERSIBLE the instant this is
+    called (see build_transfer_payload's docstring - there is no safe dry-run for this call
+    itself). The endpoint/payload shape is field-verified, not guessed: this exact shape is what
+    scripts/test_transfer_dryrun.py's accidental real transfer and scripts/revert_transfer.py's
+    revert both went through with. Not verified: every edge case (price changes mid-window,
+    wildcard/free-hit interaction, multi-transfer arrays). purchase_price/selling_price are
+    FPL's tenths-of-a-million integers (e.g. 125 = £12.5m) - pass whatever a fresh get_my_team()
+    call reports for the outgoing pick's selling price and the incoming player's current cost,
+    never a value read off potentially-stale ingested DB prices. Returns the raw response rather
+    than raising, so the caller can inspect a failure's exact body."""
+    payload = build_transfer_payload(entry_id, event_id, out_element, in_element, purchase_price, selling_price)
+    return session.post(TRANSFERS_URL, json=payload, timeout=TIMEOUT_SECONDS)
 
 
 def run() -> None:

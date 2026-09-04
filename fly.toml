@@ -1,0 +1,26 @@
+# Fly.io app config for the long-running Telegram instruction bot (src/notify/telegram_bot.py).
+# Not used by the GitHub-Actions-cron pieces (deadline_scheduler.py, ingestion) - those stay on
+# their existing schedule, unrelated to this.
+#
+# One-time setup (run these yourself - this file alone doesn't deploy anything):
+#   1. flyctl auth login
+#   2. flyctl launch --no-deploy   (creates the app; keep this generated fly.toml, don't let it overwrite yours)
+#   3. flyctl secrets set DATABASE_URL=... FPL_ENTRY_ID=... FPL_API_AUTHORIZATION=... \
+#        FPL_SESSION_COOKIE=... TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=...
+#   4. flyctl deploy
+#
+# Re-run step 3 (just the changed secret) whenever FPL_API_AUTHORIZATION/FPL_SESSION_COOKIE
+# expire and you re-extract them from a browser session - the bot will tell you in Telegram when
+# that's needed (see AUTH_EXPIRED_HINT in src/notify/bot_commands.py).
+app = "fergies-regression-bot"  # rename if this collides with an existing Fly app name
+primary_region = "iad"          # pick the region nearest you; doesn't need to match Supabase's
+
+[build]
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256               # long-polling one Telegram bot is light; bump if it OOMs
+
+# No [http_service]/ports section: this process only makes outbound calls (Telegram long-poll,
+# Supabase, FPL) and receives no inbound HTTP traffic, so it doesn't need Fly's proxy at all.
