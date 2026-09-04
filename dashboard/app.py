@@ -690,6 +690,10 @@ tab_model_lab = tab_lookup["Model Lab"]
 if settings.ENTRY_ID:
     with tab_lookup["This Week"]:
         squad, manager_gw = load_squad(season, settings.ENTRY_ID)
+        if not squad.empty:
+            squad = squad.merge(
+                rankings[["player_code", "horizon_points", "horizon_fixtures"]], on="player_code", how="left"
+            )
         deadline = load_next_deadline(season)
 
         if squad.empty:
