@@ -65,21 +65,26 @@ def load_player_rankings(season: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
-def load_fixture_difficulty(season: str) -> pd.DataFrame:
+def load_fixture_grid(season: str, start_gw: int, horizon: int) -> pd.DataFrame:
+    """Every team's fixture(s) across [start_gw, start_gw + horizon) - not just the immediate
+    next one (v_fixture_difficulty already carries one row per upcoming fixture; the Fixtures
+    tab used to throw all but the earliest away via DISTINCT ON, which is why it could only
+    ever show one gameweek). A team with two fixtures in one event_id (a double gameweek)
+    naturally produces two rows here; a team with none (a blank) produces zero - the caller
+    handles both."""
     engine = get_engine()
     return pd.read_sql_query(
         """
-        SELECT DISTINCT ON (fd.team_code)
-               th.short_name AS team, ta.short_name AS opponent, fd.is_home,
-               fd.fpl_fdr, fd.fixture_difficulty_score, fd.kickoff_time
+        SELECT th.short_name AS team, ta.short_name AS opponent, fd.is_home,
+               fd.event_id, fd.fixture_difficulty_score
         FROM v_fixture_difficulty fd
         JOIN teams th ON th.team_code = fd.team_code
         JOIN teams ta ON ta.team_code = fd.opponent_code
-        WHERE fd.season = %(season)s
-        ORDER BY fd.team_code, fd.kickoff_time
+        WHERE fd.season = %(season)s AND fd.event_id >= %(start_gw)s AND fd.event_id < %(start_gw)s + %(horizon)s
+        ORDER BY th.short_name, fd.event_id
         """,
-        engine, params={"season": season},
-    ).sort_values("fixture_difficulty_score")
+        engine, params={"season": season, "start_gw": start_gw, "horizon": horizon},
+    )
 
 
 @st.cache_data(ttl=300)
@@ -258,17 +263,21 @@ def format_time_left(deadline_time) -> str:
     return f"{hours}h {minutes}m"
 
 
-# Position identity color (fixed order, never cycled - see the dataviz skill's color
-# formula): distinct categorical hues from the project's validated palette, one per FPL
-# position, used consistently across the pitch view and bench strip below.
-POSITION_ACCENT = {"GKP": "#4a3aa7", "DEF": "#2a78d6", "MID": "#1baf7a", "FWD": "#eb6834"}
-CAPTAIN_GOLD = "#eda100"
-STATUS_GOOD = "#0ca30c"
-STATUS_WARNING = "#fab219"
-# A distinct magenta, deliberately NOT the DEF accent (#2a78d6) - this ring marks "the model's
-# suggested captain," a different signal than position identity, and reusing DEF's blue would
-# make a highlighted midfielder/forward read as if they'd become a defender.
-MODEL_PICK_ACCENT = "#e87ba4"
+# Design tokens - lifted directly from .streamlit/config.toml, not invented: this is the
+# app's real dark theme (background/card/border/text), and the position/status colors below
+# are chosen from its own chartCategoricalColors / semantic-colors sets so nothing here
+# introduces a palette Streamlit's own chrome doesn't already use. Position colors deliberately
+# avoid green/orange/red - those are reserved for status (good/warning) and the captain badge -
+# so a position accent never collides with a status ring around the same player.
+BG = "#0F1420"
+CARD_BG = "#161B28"
+CARD_BORDER = "#232838"
+TEXT_PRIMARY = "#E6EDF3"
+TEXT_MUTED = "#8B94A8"
+CAPTAIN_BADGE = "#E11D2E"  # brand primary - the one thing on a pitch worth a bold color
+STATUS_GOOD = "#22C55E"
+STATUS_WARNING = "#F59E0B"
+POSITION_ACCENT = {"GKP": "#8B94A8", "DEF": "#3B82F6", "MID": "#A855F7", "FWD": "#06B6D4"}
 
 
 def captain_recommendation(starting: pd.DataFrame) -> dict | None:
@@ -303,11 +312,48 @@ def lineup_changes(squad: pd.DataFrame) -> dict:
     }
 
 
-def _player_badge_html(player: pd.Series, size: int, is_captain: bool, is_vice: bool,
-                        is_recommended_captain: bool, swap_flag: str | None) -> str:
-    accent = POSITION_ACCENT.get(player["position"], "#898781")
-    predicted = player.get("predicted_points")
-    predicted_str = f"{predicted:.1f} pts" if pd.notna(predicted) else "— pts"
+def render_stat_tile_html(label: str, value: str, sublabel: str | None = None, accent: str = TEXT_PRIMARY) -> str:
+    sub = f'<div style="font-size:12px;font-weight:500;color:{TEXT_MUTED};">{sublabel}</div>' if sublabel else ""
+    return f"""
+    <div style="background:{CARD_BG};border:1px solid {CARD_BORDER};border-radius:16px;padding:18px 20px;
+                display:flex;flex-direction:column;gap:6px;height:100%;box-sizing:border-box;justify-content:center;">
+      <div style="font-size:12px;font-weight:500;color:{TEXT_MUTED};letter-spacing:0.02em;">{label}</div>
+      <div style="font-size:28px;font-weight:700;color:{accent};line-height:1.1;">{value}</div>
+      {sub}
+    </div>
+    """
+
+
+def render_action_tile_html(status: str, headline: str, subtext: str) -> str:
+    """status: 'good' (green check) or 'attention' (red chevron, brand primary - reserved for
+    the one thing on a screen actually worth acting on, per the design canvas mockup)."""
+    is_good = status == "good"
+    accent = STATUS_GOOD if is_good else CAPTAIN_BADGE
+    icon = (
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0F1420" stroke-width="3" '
+        'stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4L19 7"/></svg>'
+        if is_good else
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" '
+        'stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>'
+    )
+    return f"""
+    <div style="background:{CARD_BG};border:1px solid {CARD_BORDER};border-left:3px solid {accent};
+                border-radius:16px;padding:20px 22px;display:flex;gap:14px;align-items:flex-start;
+                height:100%;box-sizing:border-box;">
+      <div style="flex:0 0 auto;width:32px;height:32px;border-radius:50%;background:{accent};
+                  display:flex;align-items:center;justify-content:center;">{icon}</div>
+      <div style="display:flex;flex-direction:column;gap:4px;min-width:0;">
+        <div style="font-size:15px;font-weight:600;color:{TEXT_PRIMARY};">{headline}</div>
+        <div style="font-size:13px;color:{TEXT_MUTED};line-height:1.4;">{subtext}</div>
+      </div>
+    </div>
+    """
+
+
+def _player_badge_html(name: str, points, position: str, size: int, is_captain: bool = False,
+                        is_vice: bool = False, swap_flag: str | None = None) -> str:
+    accent = POSITION_ACCENT.get(position, TEXT_MUTED)
+    points_str = f"{points:.1f} pts" if pd.notna(points) else "— pts"
     ring = ""
     footer = ""
     if swap_flag == "start":
@@ -316,45 +362,43 @@ def _player_badge_html(player: pd.Series, size: int, is_captain: bool, is_vice: 
     elif swap_flag == "bench":
         ring = f"box-shadow:0 0 0 3px {STATUS_WARNING};"
         footer = f'<div style="font-size:10px;color:{STATUS_WARNING};font-weight:700;">&#9660; consider bench</div>'
-    elif is_recommended_captain and not is_captain:
-        ring = f"box-shadow:0 0 0 3px {MODEL_PICK_ACCENT};"
-        footer = f'<div style="font-size:10px;color:{MODEL_PICK_ACCENT};font-weight:700;">&#9733; model\'s captain</div>'
 
     badge = ""
     if is_captain:
         badge = (f'<div style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;'
-                  f'border-radius:50%;background:{CAPTAIN_GOLD};color:#0b0b0b;font-size:11px;'
+                  f'border-radius:50%;background:{CAPTAIN_BADGE};color:#fff;font-size:11px;'
                   f'font-weight:800;display:flex;align-items:center;justify-content:center;'
-                  f'border:2px solid #fff;">C</div>')
+                  f'border:2px solid {BG};">C</div>')
     elif is_vice:
         badge = (f'<div style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;'
-                  f'border-radius:50%;background:#c3c2b7;color:#0b0b0b;font-size:11px;'
+                  f'border-radius:50%;background:{TEXT_MUTED};color:{BG};font-size:11px;'
                   f'font-weight:800;display:flex;align-items:center;justify-content:center;'
-                  f'border:2px solid #fff;">V</div>')
+                  f'border:2px solid {BG};">V</div>')
 
     return f"""
-    <div style="text-align:center;width:80px;">
+    <div style="text-align:center;width:{max(size + 34, 76)}px;">
       <div style="position:relative;width:{size}px;height:{size}px;margin:0 auto;">
-        <div style="width:{size}px;height:{size}px;border-radius:50%;background:#ffffff;
+        <div style="width:{size}px;height:{size}px;border-radius:50%;background:{CARD_BG};
                     border:3px solid {accent};{ring}"></div>
         {badge}
       </div>
-      <div style="margin-top:4px;background:rgba(11,11,11,0.72);border-radius:6px;padding:2px 4px;">
-        <div style="color:#fff;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;
-                    text-overflow:ellipsis;">{player['web_name']}</div>
-        <div style="color:#fff;font-size:11px;font-weight:700;">{predicted_str}</div>
+      <div style="margin-top:4px;background:rgba(15,20,32,0.85);border-radius:8px;padding:3px 6px;">
+        <div style="color:{TEXT_PRIMARY};font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;
+                    text-overflow:ellipsis;">{name}</div>
+        <div style="color:{TEXT_PRIMARY};font-size:11px;font-weight:700;">{points_str}</div>
       </div>
       {footer}
     </div>
     """
 
 
-def render_pitch_html(starting: pd.DataFrame, recommended_captain_code, bench_out_codes: set) -> str:
-    """An FPL-style pitch view of the actual starting XI (no external kit/crest images - those
-    would need FPL's own CDN, unnecessary and unavailable here). Position = a fixed accent
-    color; the captain gets a gold armband badge; a model disagreement (suggested captain
-    swap, or a starter the model would bench) is called out with BOTH a status-colored ring
-    and a text label - never color alone, per the dataviz skill's accessibility rule."""
+def render_pitch_html(starting: pd.DataFrame, bench_out_codes: set, value_col: str = "predicted_points") -> str:
+    """An FPL-style pitch view of a starting XI (no external kit/crest images - those would
+    need FPL's own CDN, unnecessary and unavailable here). Position = a fixed accent color;
+    the captain gets a red armband badge; a lineup swap the model would make is called out
+    with BOTH a status-colored ring and a text label - never color alone, per the dataviz
+    skill's accessibility rule. value_col lets callers reuse this for either the next-GW
+    prediction or the fixture-weighted horizon total."""
     row_top_pct = {"FWD": 8, "MID": 34, "DEF": 60, "GKP": 84}
     cards = []
     for pos in ("FWD", "MID", "DEF", "GKP"):
@@ -364,8 +408,9 @@ def render_pitch_html(starting: pd.DataFrame, recommended_captain_code, bench_ou
             left_pct = (i + 0.5) / n * 100 if n else 50
             swap_flag = "bench" if player["player_code"] in bench_out_codes else None
             card = _player_badge_html(
-                player, size=48, is_captain=bool(player["is_captain"]), is_vice=bool(player["is_vice_captain"]),
-                is_recommended_captain=(player["player_code"] == recommended_captain_code), swap_flag=swap_flag,
+                player["web_name"], player.get(value_col), player["position"], size=48,
+                is_captain=bool(player.get("is_captain", False)), is_vice=bool(player.get("is_vice_captain", False)),
+                swap_flag=swap_flag,
             )
             cards.append(
                 f'<div style="position:absolute;top:{row_top_pct[pos]}%;left:{left_pct}%;'
@@ -386,41 +431,90 @@ def render_pitch_html(starting: pd.DataFrame, recommended_captain_code, bench_ou
     """
 
 
-def render_bench_html(bench: pd.DataFrame, bring_in_codes: set) -> str:
+def render_bench_html(bench: pd.DataFrame, bring_in_codes: set, value_col: str = "predicted_points") -> str:
     items = []
     for _, player in bench.iterrows():
         swap_flag = "start" if player["player_code"] in bring_in_codes else None
         items.append(_player_badge_html(
-            player, size=38, is_captain=False, is_vice=bool(player["is_vice_captain"]),
-            is_recommended_captain=False, swap_flag=swap_flag,
+            player["web_name"], player.get(value_col), player["position"], size=38,
+            is_vice=bool(player.get("is_vice_captain", False)), swap_flag=swap_flag,
         ))
     return f"""
     <div style="display:flex;gap:16px;align-items:flex-start;justify-content:center;
-                padding:16px 10px;background:#f0efec;border-radius:12px;margin-top:12px;">
-      <div style="font-size:11px;color:#898781;font-weight:700;align-self:center;">BENCH</div>
+                padding:16px 10px;background:{CARD_BG};border:1px solid {CARD_BORDER};
+                border-radius:12px;margin-top:12px;">
+      <div style="font-size:11px;color:{TEXT_MUTED};font-weight:700;align-self:center;">BENCH</div>
       {''.join(items)}
     </div>
     """
 
 
-def render_transfer_card_html(sell_row: pd.Series, buy_row: pd.Series) -> str:
+def render_transfer_card_html(sell_row: pd.Series, buy_row: pd.Series, value_col: str = "predicted_points") -> str:
     def _card(player: pd.Series, accent: str) -> str:
         return f"""
         <div style="text-align:center;width:120px;">
-          <div style="width:56px;height:56px;margin:0 auto;border-radius:50%;background:#ffffff;
+          <div style="width:56px;height:56px;margin:0 auto;border-radius:50%;background:{CARD_BG};
                       border:3px solid {accent};"></div>
-          <div style="margin-top:6px;font-weight:700;font-size:13px;">{player['web_name']}</div>
-          <div style="font-size:11px;color:#52514e;">£{player['price']:.1f}m</div>
+          <div style="margin-top:6px;font-weight:700;font-size:13px;color:{TEXT_PRIMARY};">{player['web_name']}</div>
+          <div style="font-size:11px;color:{TEXT_MUTED};">£{player['price']:.1f}m</div>
           <div style="font-size:13px;font-weight:700;color:{accent};margin-top:2px;">
-            {player['predicted_points']:.1f} pts
+            {player[value_col]:.1f} pts
           </div>
         </div>
         """
     return f"""
     <div style="display:flex;align-items:center;justify-content:center;gap:18px;padding:12px 0;">
-      {_card(sell_row, "#898781")}
+      {_card(sell_row, TEXT_MUTED)}
       <div style="font-size:22px;color:{STATUS_GOOD};">&#8594;</div>
       {_card(buy_row, STATUS_GOOD)}
+    </div>
+    """
+
+
+def render_player_row_html(name: str, team: str, price: float, position: str, predicted: float,
+                            floor: float, ceiling: float, ceiling_pct: float) -> str:
+    """One row of the Players tab: a predicted-points bar and a floor-ceiling range bar sharing
+    one 0-12pt scale, so rows compare at a glance without reading twelve columns of numbers.
+    The range bar's right edge (not its width) is what gets clamped to the scale - clamping
+    width independently let a star player's ceiling (this model runs to 20+ pts) push the bar
+    past the track's right edge with nothing to stop it."""
+    scale_max = 12.0
+
+    def pct(v: float) -> float:
+        return max(0.0, min(100.0, (v / scale_max) * 100.0))
+
+    predicted_pct = pct(predicted)
+    range_left = pct(floor)
+    range_right = pct(ceiling)
+    range_width = max(0.0, range_right - range_left)
+    ceiling_color = STATUS_GOOD if ceiling_pct >= 20 else TEXT_PRIMARY
+    return f"""
+    <div style="display:grid;grid-template-columns:230px 1fr 200px 92px;gap:20px;align-items:center;
+                background:{CARD_BG};border:1px solid {CARD_BORDER};border-radius:12px;padding:14px 18px;">
+      <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+        <div style="flex:0 0 auto;width:10px;height:10px;border-radius:50%;background:{POSITION_ACCENT.get(position, TEXT_MUTED)};"></div>
+        <div style="min-width:0;">
+          <div style="font-size:14px;font-weight:600;color:{TEXT_PRIMARY};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>
+          <div style="font-size:12px;color:{TEXT_MUTED};">{team} · £{price:.1f}m</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="flex:1;height:8px;border-radius:999px;background:{BG};overflow:hidden;">
+          <div style="width:{predicted_pct}%;height:100%;border-radius:999px;background:{POSITION_ACCENT.get(position, TEXT_MUTED)};"></div>
+        </div>
+        <div style="font-size:15px;font-weight:700;color:{TEXT_PRIMARY};width:38px;text-align:right;">{predicted:.1f}</div>
+      </div>
+      <div>
+        <div style="position:relative;height:8px;border-radius:999px;background:{BG};overflow:hidden;">
+          <div style="position:absolute;left:{range_left}%;width:{range_width}%;top:0;height:100%;border-radius:999px;background:{CARD_BORDER};"></div>
+          <div style="position:absolute;left:{predicted_pct}%;top:-3px;width:3px;height:14px;border-radius:2px;background:{TEXT_MUTED};"></div>
+        </div>
+        <div style="font-size:11px;color:{TEXT_MUTED};margin-top:5px;">{floor:.1f} – {ceiling:.1f} pts</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:15px;font-weight:700;color:{ceiling_color};">{ceiling_pct:.0f}%</div>
+        <div style="font-size:11px;color:{TEXT_MUTED};">ceiling</div>
+      </div>
     </div>
     """
 
@@ -446,15 +540,13 @@ if last_gw is not None and last_gw <= 2:
         "expected behavior, not a bug."
     )
 
-tab_names = ["Player Rankings", "Fixture Planner", "Transfer Targets", "Optimal Squad", "Model Lab"]
+tab_names = ["Players", "Fixtures", "Optimal Squad", "Model Lab"]
 if settings.ENTRY_ID:
-    tab_names.insert(0, "My Squad")
-    tab_names.insert(0, "This Week")
+    tab_names = ["This Week"] + tab_names[:2] + ["Season"] + tab_names[2:]
 tabs = st.tabs(tab_names)
 tab_lookup = dict(zip(tab_names, tabs))
-tab_rankings = tab_lookup["Player Rankings"]
-tab_fixtures = tab_lookup["Fixture Planner"]
-tab_targets = tab_lookup["Transfer Targets"]
+tab_players = tab_lookup["Players"]
+tab_fixtures = tab_lookup["Fixtures"]
 tab_optimal = tab_lookup["Optimal Squad"]
 tab_model_lab = tab_lookup["Model Lab"]
 
@@ -472,383 +564,435 @@ if settings.ENTRY_ID:
             header_cols = st.columns([2, 1, 1])
             if deadline is not None:
                 header_cols[0].markdown(
-                    f"### {deadline['name']} — deadline in **{format_time_left(deadline['deadline_time'])}**"
+                    f"<div style='font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;"
+                    f"color:{TEXT_MUTED};margin-bottom:6px;'>{deadline['name']} deadline</div>"
+                    f"<div style='font-size:44px;font-weight:800;line-height:1;color:{TEXT_PRIMARY};'>"
+                    f"{format_time_left(deadline['deadline_time'])}</div>",
+                    unsafe_allow_html=True,
                 )
             else:
                 header_cols[0].markdown("### No upcoming deadline found")
             gw_row = manager_gw.iloc[0] if not manager_gw.empty else None
             free_transfers = compute_free_transfers(manager_gw)
             bank = float(gw_row["bank"]) / 10 if gw_row is not None else 0.0
-            header_cols[1].metric("Free transfers", free_transfers)
-            header_cols[2].metric("Bank", f"£{bank:.1f}m")
+            with header_cols[1]:
+                components.html(render_stat_tile_html("Free transfers", str(free_transfers)), height=96)
+            with header_cols[2]:
+                components.html(render_stat_tile_html("Bank", f"£{bank:.1f}m"), height=96)
 
             cap = captain_recommendation(starting)
             changes = lineup_changes(squad)
 
             st.markdown("#### Your team")
-            pitch_html = render_pitch_html(
-                starting,
-                recommended_captain_code=cap["recommended_code"] if cap else None,
-                bench_out_codes=changes["bench_out_codes"],
-            )
-            components.html(pitch_html, height=500)
+            components.html(render_pitch_html(starting, changes["bench_out_codes"]), height=500)
             if not bench.empty:
                 components.html(render_bench_html(bench, changes["bring_in_codes"]), height=120)
 
             action_cols = st.columns(2)
             with action_cols[0]:
                 if cap is None:
-                    st.info("Captain recommendation unavailable — no prediction for this gameweek yet.")
-                elif cap["matches"]:
-                    st.success(f"**Captain: {cap['current_name']}** is already the model's top pick.")
-                else:
-                    st.warning(
-                        f"**Switch captain:** {cap['recommended_name']} "
-                        f"({cap['recommended_points']:.1f} pred.) over {cap['current_name']} "
-                        f"({cap['current_points']:.1f} pred.)."
+                    tile = render_action_tile_html(
+                        "good", "Captain recommendation unavailable", "No prediction for this gameweek yet."
                     )
+                elif cap["matches"]:
+                    tile = render_action_tile_html(
+                        "good", f"Captain: {cap['current_name']}", "Already the model's top pick in your XI."
+                    )
+                else:
+                    tile = render_action_tile_html(
+                        "attention", f"Switch captain to {cap['recommended_name']}",
+                        f"{cap['recommended_points']:.1f} predicted vs. {cap['current_points']:.1f} for "
+                        f"{cap['current_name']}, currently armbanded.",
+                    )
+                components.html(tile, height=110)
             with action_cols[1]:
                 if not changes["bring_in_codes"] and not changes["bench_out_codes"]:
-                    st.success("**Lineup: already optimal** for this formation and squad.")
+                    tile = render_action_tile_html(
+                        "good", "Lineup is optimal", "No swap improves this formation and squad."
+                    )
                 else:
                     gain = changes["optimal_points"] - starting["predicted_points"].sum()
-                    st.warning(f"**Lineup change available:** +{gain:.1f} predicted points — see highlighted players above.")
+                    tile = render_action_tile_html(
+                        "attention", f"+{gain:.1f} pts available in your lineup",
+                        "See the highlighted swap on the pitch above.",
+                    )
+                components.html(tile, height=110)
 
             st.divider()
             st.markdown("#### Recommended transfer")
             plan, _, remaining_bank = suggest_transfer_plan(squad, rankings, bank, free_transfers)
             if plan.empty:
-                st.success("**No transfer recommended** — your squad already looks efficient.")
+                components.html(
+                    render_action_tile_html("good", "No transfer recommended", "Your squad already looks efficient."),
+                    height=110,
+                )
             else:
                 top = plan.iloc[0]
                 sell_row = squad[squad["web_name"] == top["sell"]].iloc[0]
                 buy_row = rankings[rankings["web_name"] == top["buy"]].iloc[0]
                 components.html(render_transfer_card_html(sell_row, buy_row), height=140)
-                st.metric("Net gain (after any hit)", f"{top['net']:+.1f} pts")
+                components.html(
+                    render_stat_tile_html("Net gain, after any hit", f"{top['net']:+.1f} pts", accent=STATUS_GOOD),
+                    height=96,
+                )
+
+            with st.expander("Full coordinated transfer plan"):
+                st.caption(
+                    f"You have **{free_transfers}** free transfer(s) available. Coordinated, not "
+                    "independent suggestions — each transfer accounts for the ones before it. Greedy: "
+                    "picks the single best transfer at each step, stops once the next one wouldn't "
+                    "survive its hit cost."
+                )
+                plan_horizon = st.radio(
+                    "Judge transfers by", ["Next GW only", f"Next {DEFAULT_HORIZON} GWs (fixture-weighted)"],
+                    horizontal=True, key="plan_horizon",
+                )
+                plan_value_col = "horizon_points" if "GWs" in plan_horizon else "predicted_points"
+                full_plan, _, plan_remaining_bank = suggest_transfer_plan(
+                    squad, rankings, bank, free_transfers, value_col=plan_value_col
+                )
+                if full_plan.empty:
+                    st.info("No positive-net-gain transfer found at this horizon.")
+                else:
+                    st.dataframe(
+                        full_plan.rename(columns={
+                            "transfer_num": "#", "sell": "Sell", "buy": "Buy", "gain": "Predicted gain",
+                            "hit": "Hit cost", "net": "Net gain", "free_transfer_used": "Free transfer",
+                        }),
+                        use_container_width=True, hide_index=True,
+                    )
+                    st.caption(f"Bank after this plan: £{plan_remaining_bank:.1f}m")
 
             st.divider()
             st.markdown("#### Range of outcomes")
             sim_totals = simulate_squad(starting, n_samples=10000)
             sim_stats = summarize_simulation(sim_totals)
-            range_cols = st.columns(4)
-            range_cols[0].metric("Likely (median)", f"{sim_stats['p50']:.0f}")
-            range_cols[1].metric("Bad week (p10)", f"{sim_stats['p10']:.0f}")
-            range_cols[2].metric("Great week (p90)", f"{sim_stats['p90']:.0f}")
-            range_cols[3].metric("P(80+ pts)", f"{sim_stats['p_beat_80']:.0%}")
+            range_tiles = "".join(
+                f'<div style="flex:1;">{render_stat_tile_html(label, value, accent=accent)}</div>'
+                for label, value, accent in [
+                    ("Likely (median)", f"{sim_stats['p50']:.0f}", TEXT_PRIMARY),
+                    ("Bad week (p10)", f"{sim_stats['p10']:.0f}", TEXT_PRIMARY),
+                    ("Great week (p90)", f"{sim_stats['p90']:.0f}", STATUS_GOOD),
+                    ("P(80+ pts)", f"{sim_stats['p_beat_80']:.0%}", TEXT_PRIMARY),
+                ]
+            )
+            components.html(f'<div style="display:flex;gap:16px;">{range_tiles}</div>', height=118)
 
             fig, ax = plt.subplots(figsize=(8, 3))
-            ax.hist(sim_totals, bins=50, color="#3987e5", alpha=0.85, edgecolor="none")
-            for pct, label, color in [(10, "p10", "#898781"), (50, "median", "#0b0b0b"), (90, "p90", "#898781")]:
+            fig.patch.set_facecolor(BG)
+            ax.set_facecolor(BG)
+            ax.hist(sim_totals, bins=50, color="#3B82F6", alpha=0.85, edgecolor="none")
+            for pct, label, color in [(10, "p10", TEXT_MUTED), (50, "median", TEXT_PRIMARY), (90, "p90", TEXT_MUTED)]:
                 x = np.percentile(sim_totals, pct)
                 ax.axvline(x, color=color, linestyle="--", linewidth=1)
                 ax.text(x, ax.get_ylim()[1] * 0.95, label, color=color, fontsize=9, ha="center")
-            ax.set_xlabel("Simulated starting XI points (captain doubled)")
+            ax.set_xlabel("Simulated starting XI points (captain doubled)", color=TEXT_MUTED)
+            ax.tick_params(colors=TEXT_MUTED)
             ax.set_yticks([])
             for spine in ("top", "right", "left"):
                 ax.spines[spine].set_visible(False)
+            ax.spines["bottom"].set_color(CARD_BORDER)
             plt.tight_layout()
             st.pyplot(fig)
-            st.caption(
-                "See the **My Squad** tab for full detail — gameweek history, the coordinated "
-                "multi-transfer plan, and every methodology caveat."
-            )
+            st.caption("See the **Season** tab for gameweek-by-gameweek history against this model's own predictions.")
 
 if settings.ENTRY_ID:
-    with tab_lookup["My Squad"]:
-        squad, manager_gw = load_squad(season, settings.ENTRY_ID)
-        squad = squad.merge(
-            rankings[["player_code", "horizon_points", "horizon_fixtures"]], on="player_code", how="left"
-        )
-        if squad.empty:
+    with tab_lookup["Season"]:
+        _, manager_gw = load_squad(season, settings.ENTRY_ID)
+        comparison = load_gw_comparison(season, settings.ENTRY_ID)
+
+        if manager_gw.empty:
             st.warning("No squad data ingested yet. Run `python -m src.ingestion.load_manager` first.")
         else:
-            gw_row = manager_gw.iloc[0] if not manager_gw.empty else None
-            if gw_row is not None:
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("GW points", int(gw_row["points"]))
-                c2.metric("Overall rank", f"{int(gw_row['overall_rank']):,}" if pd.notna(gw_row["overall_rank"]) else "—")
-                c3.metric("Team value", f"£{gw_row['team_value']/10:.1f}m")
-                c4.metric("Bank", f"£{gw_row['bank']/10:.1f}m")
+            latest = manager_gw.sort_values("event_id").iloc[-1]
+            best_gw = manager_gw.loc[manager_gw["points"].idxmax()]
 
-            starting = squad[squad["multiplier"] > 0].copy()
-            bench = squad[squad["multiplier"] == 0].copy()
+            stat_cols = st.columns(4)
+            with stat_cols[0]:
+                components.html(render_stat_tile_html(
+                    "Total points", str(int(latest["total_points"])),
+                    sublabel=f"GW average {manager_gw['points'].mean():.1f}",
+                ), height=118)
+            with stat_cols[1]:
+                rank_str = f"{int(latest['overall_rank']):,}" if pd.notna(latest["overall_rank"]) else "—"
+                components.html(render_stat_tile_html("Overall rank", rank_str), height=118)
+            with stat_cols[2]:
+                components.html(render_stat_tile_html(
+                    "Best gameweek", str(int(best_gw["points"])), sublabel=f"GW{int(best_gw['event_id'])}",
+                    accent=STATUS_GOOD,
+                ), height=118)
+            with stat_cols[3]:
+                components.html(render_stat_tile_html(
+                    "Points left on bench", str(int(manager_gw["points_on_bench"].sum())),
+                    sublabel=f"Across {len(manager_gw)} gameweek(s)", accent=STATUS_WARNING,
+                ), height=118)
 
-            projected_total = (starting["predicted_points"] * starting["multiplier"]).sum()
-            st.metric("Projected next-GW points (starting XI, with captain)", round(projected_total, 1))
-
-            best_captain_idx = starting["predicted_points"].idxmax() if not starting["predicted_points"].isna().all() else None
-            current_captain = starting[starting["is_captain"]]
-            if best_captain_idx is not None and not current_captain.empty:
-                best_captain_name = starting.loc[best_captain_idx, "web_name"]
-                current_captain_name = current_captain.iloc[0]["web_name"]
-                if best_captain_name != current_captain_name:
-                    st.warning(
-                        f"Model suggests **{best_captain_name}** as captain "
-                        f"(predicted {starting.loc[best_captain_idx, 'predicted_points']:.2f}) over your "
-                        f"current pick **{current_captain_name}** "
-                        f"(predicted {current_captain.iloc[0]['predicted_points']:.2f})."
-                    )
-                else:
-                    st.success(f"Your captain **{current_captain_name}** is also the model's top pick.")
-
-            best_ceiling_idx = (
-                starting["p_haul_10plus"].idxmax() if not starting["p_haul_10plus"].isna().all() else None
-            )
-            if (
-                best_ceiling_idx is not None and not current_captain.empty
-                and starting.loc[best_ceiling_idx, "web_name"] != current_captain.iloc[0]["web_name"]
-            ):
-                st.info(
-                    f"Highest-ceiling option in your XI: **{starting.loc[best_ceiling_idx, 'web_name']}** "
-                    f"({starting.loc[best_ceiling_idx, 'p_haul_10plus']:.0%} chance of 10+ points) - "
-                    "worth considering as a differential captain pick if you're chasing rank rather "
-                    "than protecting it. The expected-points suggestion above is the safer play."
-                )
-
-            def _format_squad(df: pd.DataFrame) -> pd.DataFrame:
-                labeled = df.copy()
-                labeled["role"] = labeled.apply(
-                    lambda r: "C" if r["is_captain"] else ("VC" if r["is_vice_captain"] else ""), axis=1
-                )
-                return labeled[
-                    ["web_name", "position", "team", "price", "predicted_points", "p_haul_10plus", "role"]
-                ].rename(columns={
-                    "web_name": "Player", "position": "Pos", "team": "Team", "price": "Price (£m)",
-                    "predicted_points": "Predicted (next GW)", "p_haul_10plus": "Ceiling %", "role": "",
-                })
-
-            st.markdown("**Starting XI**")
-            st.dataframe(_format_squad(starting), use_container_width=True, hide_index=True)
-            st.markdown("**Bench**")
-            st.dataframe(_format_squad(bench), use_container_width=True, hide_index=True)
-
-            st.divider()
-            st.subheader("Monte Carlo: range of outcomes for your starting XI")
+            st.markdown("#### Model accuracy — predicted vs. what actually happened")
             st.caption(
-                "10,000 simulated gameweeks, sampling each starter's points independently from "
-                "their own floor/median/ceiling (quantile regression, not a guessed distribution "
-                "shape). **Known simplification**: players are sampled independently - real "
-                "outcomes correlate within a team and across a fixture, so the true spread is "
-                "somewhat wider than shown here on both ends."
+                "Model/FPL prediction lines are only populated once a prediction existed *before* "
+                "that gameweek's deadline — GW1 is permanently unavailable for either (the model's "
+                "features need at least one prior gameweek of rolling form). Gaps mean unavailable, "
+                "not zero. Both are for the starting XI actually fielded that week."
             )
-            sim_totals = simulate_squad(starting, n_samples=10000)
-            sim_stats = summarize_simulation(sim_totals)
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Median", f"{sim_stats['p50']:.1f}")
-            c2.metric("10th pct (bad week)", f"{sim_stats['p10']:.1f}")
-            c3.metric("90th pct (great week)", f"{sim_stats['p90']:.1f}")
-            c4.metric("P(80+ points)", f"{sim_stats['p_beat_80']:.1%}")
-
-            fig, ax = plt.subplots(figsize=(8, 4))
-            ax.hist(sim_totals, bins=50, color="#4C72B0", alpha=0.85)
-            for pct, label in [(10, "p10"), (50, "median"), (90, "p90")]:
-                ax.axvline(np.percentile(sim_totals, pct), color="black", linestyle="--", linewidth=1)
-            ax.set_xlabel("Simulated starting XI points (captain doubled)")
-            ax.set_ylabel("Simulations")
-            ax.set_title("Next-GW outcome distribution for your actual starting XI")
-            plt.tight_layout()
-            st.pyplot(fig)
-
-            st.divider()
-            st.subheader("Recommended starting XI (auto-substitution)")
-            st.caption(
-                "Best valid formation from your actual 15, maximizing predicted points. "
-                "Brute-forces all 8 legal FPL formations (GKP fixed at 1; DEF 3-5, MID 2-5, "
-                "FWD 1-3, 11 total) — within a fixed formation the top-N players per position "
-                "is always optimal, so this is exact, not a heuristic."
-            )
-            optimal_xi, formation = best_starting_xi(squad)
-            optimal_total = optimal_xi["predicted_points"].sum()
-            actual_total = starting["predicted_points"].sum()  # unweighted, for apples-to-apples vs optimal_total
-            if formation is None:
-                st.warning("Could not find a valid formation from this squad.")
-            else:
-                d, m, f = formation
-                st.metric(
-                    f"Optimal formation: 1-{d}-{m}-{f}",
-                    round(optimal_total, 2),
-                    delta=round(optimal_total - actual_total, 2) if abs(optimal_total - actual_total) > 0.01 else None,
-                    help="Delta vs. your actual starting XI's (unweighted) predicted total.",
-                )
-                st.dataframe(
-                    optimal_xi[["web_name", "position", "predicted_points"]].rename(columns={
-                        "web_name": "Player", "position": "Pos", "predicted_points": "Predicted (next GW)",
-                    }),
-                    use_container_width=True, hide_index=True,
-                )
-
-            st.divider()
-            st.subheader("Recommended transfer plan")
-            free_transfers = compute_free_transfers(manager_gw)
-            bank = float(gw_row["bank"]) / 10 if gw_row is not None else 0.0
-            plan_horizon = st.radio(
-                "Judge transfers by", ["Next GW only", f"Next {DEFAULT_HORIZON} GWs (fixture-weighted)"],
-                horizontal=True, key="plan_horizon",
-            )
-            plan_value_col = "horizon_points" if "GWs" in plan_horizon else "predicted_points"
-            st.caption(
-                f"You have **{free_transfers}** free transfer(s) available (computed from your "
-                "transfer history — FPL's 2026/27 rule allows banking up to 5). This is a "
-                "coordinated plan, not independent suggestions: each transfer accounts for the "
-                "ones before it, so you'll never see the same buy target twice. Greedy — picks "
-                "the single best transfer at each step, not a global search over combinations — "
-                "and stops as soon as the next transfer wouldn't survive its hit cost. "
-                + (
-                    f"Ranking players on a {DEFAULT_HORIZON}-gameweek fixture-weighted total "
-                    "(same next-GW model prediction, scaled per week by that team's fixture "
-                    "difficulty — see the Fixture Planner tab) rather than just next gameweek, "
-                    "so a good run of fixtures can justify a transfer a single-GW view would miss."
-                    if plan_value_col == "horizon_points" else
-                    "Ranking players on next gameweek's prediction only."
-                )
-            )
-            plan, _, remaining_bank = suggest_transfer_plan(
-                squad, rankings, bank, free_transfers, value_col=plan_value_col
-            )
-            if plan.empty:
-                st.info("No positive-net-gain transfer found — your squad already looks efficient.")
-            else:
-                st.dataframe(
-                    plan.rename(columns={
-                        "transfer_num": "#", "sell": "Sell", "buy": "Buy", "gain": "Predicted gain",
-                        "hit": "Hit cost", "net": "Net gain", "free_transfer_used": "Free transfer",
-                    }),
-                    use_container_width=True, hide_index=True,
-                )
-                st.caption(f"Bank after this plan: £{remaining_bank:.1f}m")
-
-            st.divider()
-            st.subheader("Gameweek performance comparison")
-            st.caption(
-                "**Model Prediction** and **FPL Prediction** are only populated once a "
-                "prediction / `ep_next` snapshot existed *before* that gameweek's deadline — "
-                "there's no way to retroactively reconstruct either for earlier gameweeks. "
-                "GW1's Model Prediction is permanently unavailable, not just unbackfilled: the "
-                "model's features need at least one prior current-season gameweek of rolling "
-                "form, so GW1 is excluded from training and backtesting too, every season, not "
-                "just this dashboard. **—** means unavailable, not zero. Both prediction "
-                "columns are for the starting XI you actually fielded that week, not the "
-                "model's own optimal lineup (see 'Recommended starting XI' above for that — the "
-                "two can differ). **Overall Percentile** is your cumulative season-rank "
-                "percentile as of that gameweek (FPL's own figure), not an isolated "
-                "single-gameweek percentile."
-            )
-            comparison = load_gw_comparison(season, settings.ENTRY_ID)
             if comparison.empty:
-                st.info("No gameweek history ingested yet. Run `python -m src.ingestion.load_manager` first.")
+                st.info("No gameweek history ingested yet.")
             else:
-                display = comparison.copy()
-                display["delta_vs_model"] = display["actual_points"] - display["model_predicted_points"]
+                fig, ax = plt.subplots(figsize=(9, 3.5))
+                fig.patch.set_facecolor(BG)
+                ax.set_facecolor(BG)
+                ax.plot(comparison["gw_name"], comparison["actual_points"], color=CAPTAIN_BADGE,
+                        linewidth=2.5, marker="o", markersize=4, label="Actual")
+                ax.plot(comparison["gw_name"], comparison["model_predicted_points"], color="#3B82F6",
+                        linewidth=2, marker="o", markersize=3, label="This model")
+                ax.plot(comparison["gw_name"], comparison["epl_predicted_points"], color=TEXT_MUTED,
+                        linewidth=2, linestyle="--", marker="o", markersize=3, label="FPL's own")
+                ax.set_ylabel("Points", color=TEXT_MUTED)
+                ax.tick_params(colors=TEXT_MUTED)
+                for spine in ax.spines.values():
+                    spine.set_color(CARD_BORDER)
+                legend = ax.legend(facecolor=CARD_BG, edgecolor=CARD_BORDER, labelcolor=TEXT_PRIMARY, fontsize=9)
+                plt.tight_layout()
+                st.pyplot(fig)
 
-                def _fmt_partial(points, matched: float) -> str:
-                    if pd.isna(points):
-                        return "—"
-                    suffix = f" ({int(matched)}/11)" if pd.notna(matched) and matched < 11 else ""
-                    return f"{points:.1f}{suffix}"
+                valid = comparison.dropna(subset=["model_predicted_points", "epl_predicted_points"]).copy()
+                insight_cols = st.columns(2)
+                if valid.empty:
+                    with insight_cols[0]:
+                        components.html(render_action_tile_html(
+                            "good", "Not enough gameweeks yet",
+                            "Model-accuracy comparisons need at least one gameweek with a pre-deadline prediction.",
+                        ), height=110)
+                else:
+                    model_err = (valid["actual_points"] - valid["model_predicted_points"]).abs()
+                    epl_err = (valid["actual_points"] - valid["epl_predicted_points"]).abs()
+                    beats = int((model_err < epl_err).sum())
+                    with insight_cols[0]:
+                        components.html(render_action_tile_html(
+                            "good" if model_err.mean() < epl_err.mean() else "attention",
+                            f"Beating FPL's own projection {beats} of {len(valid)} weeks",
+                            f"Mean error {model_err.mean():.1f} pts/GW vs. their {epl_err.mean():.1f}.",
+                        ), height=110)
+                    with insight_cols[1]:
+                        miss = valid.loc[(valid["actual_points"] - valid["model_predicted_points"]).idxmax()]
+                        miss_gap = miss["actual_points"] - miss["model_predicted_points"]
+                        components.html(render_action_tile_html(
+                            "attention", f"{miss['gw_name']}: biggest miss this season",
+                            f"Predicted {miss['model_predicted_points']:.0f}, actual {miss['actual_points']:.0f} "
+                            f"({miss_gap:+.0f}) — the model hedges toward the mean by design.",
+                        ), height=110)
 
-                display["Model Prediction"] = display.apply(
-                    lambda r: _fmt_partial(r["model_predicted_points"], r["model_players_matched"]), axis=1
-                )
-                display["FPL Prediction"] = display.apply(
-                    lambda r: _fmt_partial(r["epl_predicted_points"], r["epl_players_matched"]), axis=1
-                )
-                display["Δ vs Model"] = display["delta_vs_model"].apply(
-                    lambda v: f"{v:+.1f}" if pd.notna(v) else "—"
-                )
-                display["Overall Percentile"] = display["percentile"].apply(
-                    lambda v: f"Top {v:.0f}%" if pd.notna(v) else "—"
-                )
-                st.dataframe(
-                    display[[
-                        "gw_name", "Model Prediction", "FPL Prediction", "actual_points",
-                        "Δ vs Model", "gw_average", "gw_highest", "Overall Percentile",
-                    ]].rename(columns={
-                        "gw_name": "Gameweek", "actual_points": "Points Scored",
-                        "gw_average": "Gameweek Average", "gw_highest": "Gameweek Highest",
-                    }),
-                    use_container_width=True, hide_index=True,
-                )
+            with st.expander("Full gameweek table"):
+                if comparison.empty:
+                    st.info("No gameweek history ingested yet.")
+                else:
+                    display = comparison.copy()
+                    display["Δ vs Model"] = (display["actual_points"] - display["model_predicted_points"]).apply(
+                        lambda v: f"{v:+.1f}" if pd.notna(v) else "—"
+                    )
+                    display["Overall Percentile"] = display["percentile"].apply(
+                        lambda v: f"Top {v:.0f}%" if pd.notna(v) else "—"
+                    )
+                    st.dataframe(
+                        display[[
+                            "gw_name", "model_predicted_points", "epl_predicted_points", "actual_points",
+                            "Δ vs Model", "gw_average", "gw_highest", "Overall Percentile",
+                        ]].rename(columns={
+                            "gw_name": "Gameweek", "model_predicted_points": "Model Prediction",
+                            "epl_predicted_points": "FPL Prediction", "actual_points": "Points Scored",
+                            "gw_average": "Gameweek Average", "gw_highest": "Gameweek Highest",
+                        }),
+                        use_container_width=True, hide_index=True,
+                    )
 
-with tab_rankings:
-    st.subheader("Player rankings")
-    positions = ["All"] + sorted(rankings["position"].dropna().unique().tolist())
-    pos_filter = st.selectbox("Position", positions, key="rankings_pos")
-    min_minutes = st.slider("Minimum minutes played (season)", 0, 90, 0, step=15, key="rankings_min")
+with tab_players:
+    available = rankings[rankings["status"] == "a"]
+    st.markdown(
+        f"<div style='font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;"
+        f"color:{TEXT_MUTED};margin-bottom:6px;'>Players</div>"
+        f"<div style='font-size:32px;font-weight:800;line-height:1;color:{TEXT_PRIMARY};'>"
+        f"{len(available)} available</div>",
+        unsafe_allow_html=True,
+    )
+
+    filter_cols = st.columns([1, 1, 1, 1, 1])
+    pos_filter = filter_cols[0].selectbox(
+        "Position", ["All"] + sorted(rankings["position"].dropna().unique().tolist()), key="players_pos"
+    )
+    sort_choice = filter_cols[1].selectbox(
+        "Sort by", ["Predicted (next GW)", f"Predicted (next {DEFAULT_HORIZON} GWs)", "Value per £m", "Ceiling %"],
+        key="players_sort",
+    )
+    min_predicted = filter_cols[2].slider("Min. predicted pts", 0.0, 10.0, 0.0, step=0.5, key="players_min_pred")
+    differentials_only = filter_cols[3].checkbox("Differentials (<10% owned)", key="players_diff")
+    available_only = filter_cols[4].checkbox("Available only", value=True, key="players_avail")
 
     view = rankings.copy()
     if pos_filter != "All":
         view = view[view["position"] == pos_filter]
-    view = view[view["total_points"].notna()]
+    view = view[view["predicted_points"] >= min_predicted]
+    if differentials_only:
+        view = view[view["selected_by_percent"] < 10]
+    if available_only:
+        view = view[view["status"] == "a"]
 
+    sort_col = {
+        "Predicted (next GW)": "predicted_points", f"Predicted (next {DEFAULT_HORIZON} GWs)": "horizon_points",
+        "Value per £m": "predicted_value", "Ceiling %": "p_haul_10plus",
+    }[sort_choice]
+    view = view.sort_values(sort_col, ascending=False, na_position="last")
+
+    top_rows = view.head(25)
+    if top_rows.empty:
+        st.info("No players match these filters.")
+    else:
+        rows_html = "".join(
+            render_player_row_html(
+                r["web_name"], r["team"], r["price"], r["position"],
+                r["predicted_points"] if pd.notna(r["predicted_points"]) else 0.0,
+                r["floor_points"] if pd.notna(r["floor_points"]) else 0.0,
+                r["ceiling_points"] if pd.notna(r["ceiling_points"]) else 0.0,
+                (r["p_haul_10plus"] * 100) if pd.notna(r["p_haul_10plus"]) else 0.0,
+            )
+            for _, r in top_rows.iterrows()
+        )
+        components.html(
+            f'<div style="display:flex;flex-direction:column;gap:10px;">{rows_html}</div>',
+            height=72 * len(top_rows) + 10 * (len(top_rows) - 1) + 20,
+        )
     st.caption(
-        "**Ceiling %** = P(10+ points next GW), from a separate haul-probability classifier "
-        "(ROC-AUC ~0.85 on held-out backtesting) - not derived from Predicted points. The point "
-        "estimate alone is haul-blind (see notebooks/09_error_analysis.ipynb): it hedges toward "
-        "the mean on big scores, so Ceiling % is what actually surfaces differential/captaincy "
-        "upside, e.g. a modest point estimate with a disproportionately high ceiling. "
-        "**Floor–Ceiling** is the 10th–90th percentile range from a separate quantile "
-        "regression pass (`notebooks/11_monte_carlo.ipynb`), giving a real spread rather than "
-        "a single number — a nailed starter and a rotation risk can share the same point "
-        "estimate while having very different floors."
+        "Predicted/floor/ceiling bars share one 0–12pt scale (a real player's ceiling can run "
+        "higher; the bar clips there but the number alongside it doesn't). Ceiling % is a "
+        "separate haul-probability classifier, not derived from the point estimate — see "
+        "notebooks/09_error_analysis.ipynb."
     )
-    view_display = view.copy()
-    view_display["range"] = view_display.apply(
-        lambda r: f"{r['floor_points']:.1f}–{r['ceiling_points']:.1f}"
-        if pd.notna(r["floor_points"]) and pd.notna(r["ceiling_points"]) else "—",
-        axis=1,
-    )
-    st.dataframe(
-        view_display.sort_values("predicted_points", ascending=False, na_position="last")[
-            ["web_name", "position", "team", "price", "predicted_points", "range", "p_haul_10plus",
-             "total_points", "points_per_90", "points_per_million", "selected_by_percent", "status"]
-        ].rename(columns={
-            "web_name": "Player", "position": "Pos", "team": "Team", "price": "Price (£m)",
-            "predicted_points": "Predicted (next GW)", "range": "Floor–Ceiling", "p_haul_10plus": "Ceiling %",
-            "total_points": "Total pts", "points_per_90": "Pts/90", "points_per_million": "Pts/£m",
-            "selected_by_percent": "Owned %", "status": "Status",
-        }),
-        use_container_width=True, height=500,
-    )
+
+    with st.expander(f"Full table ({len(view)} players)"):
+        view_display = view.copy()
+        view_display["range"] = view_display.apply(
+            lambda r: f"{r['floor_points']:.1f}–{r['ceiling_points']:.1f}"
+            if pd.notna(r["floor_points"]) and pd.notna(r["ceiling_points"]) else "—",
+            axis=1,
+        )
+        st.dataframe(
+            view_display[[
+                "web_name", "position", "team", "price", "predicted_points", "horizon_points", "range",
+                "p_haul_10plus", "predicted_value", "total_points", "selected_by_percent", "status",
+            ]].rename(columns={
+                "web_name": "Player", "position": "Pos", "team": "Team", "price": "Price (£m)",
+                "predicted_points": "Predicted (next GW)", "horizon_points": f"Predicted (next {DEFAULT_HORIZON} GWs)",
+                "range": "Floor–Ceiling", "p_haul_10plus": "Ceiling %", "predicted_value": "Predicted pts/£m",
+                "total_points": "Total pts", "selected_by_percent": "Owned %", "status": "Status",
+            }),
+            use_container_width=True, height=500,
+        )
 
 with tab_fixtures:
-    st.subheader("Each team's next fixture, easiest to hardest")
-    st.caption("Lower fixture difficulty score = easier fixture. v1 formula — see data/data_dictionary.md.")
-    fixtures = load_fixture_difficulty(season)
-    st.dataframe(
-        fixtures.rename(columns={
-            "team": "Team", "opponent": "Opponent", "is_home": "Home", "fpl_fdr": "FPL FDR",
-            "fixture_difficulty_score": "Difficulty Score", "kickoff_time": "Kickoff",
-        }),
-        use_container_width=True, height=500,
-    )
+    deadline_gw = load_next_deadline(season)
+    start_gw = deadline_gw["event_id"] if deadline_gw is not None else 2
+    grid = load_fixture_grid(season, start_gw, DEFAULT_HORIZON)
 
-with tab_targets:
-    st.subheader("Transfer targets: predicted points per £m")
+    st.markdown(
+        f"<div style='font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;"
+        f"color:{TEXT_MUTED};margin-bottom:6px;'>Fixtures</div>"
+        f"<div style='font-size:32px;font-weight:800;line-height:1;color:{TEXT_PRIMARY};'>"
+        f"Next {DEFAULT_HORIZON} gameweeks</div>",
+        unsafe_allow_html=True,
+    )
     st.caption(
-        f"'Next {DEFAULT_HORIZON} GWs' sums the next-GW prediction across that window, scaled "
-        "week-by-week by the player's team's fixture difficulty (0 for a blank gameweek, "
-        "double-counted for a double gameweek) — see src/recommendations/horizon.py."
+        "This project's own fixture-difficulty score (rolling team attack/defense form), not "
+        "FPL's published FDR — the two disagree often. A double gameweek's two fixtures are "
+        "shown joined; a blank shows as a dash."
     )
-    min_predicted = st.slider("Minimum predicted points", 0.0, 10.0, 1.0, step=0.5, key="targets_min")
-    max_ownership = st.slider("Maximum ownership % (differentials)", 0.0, 100.0, 100.0, step=5.0, key="targets_own")
-    sort_horizon = st.checkbox(f"Sort by next {DEFAULT_HORIZON} GWs instead of pts/£m", key="targets_sort_horizon")
 
-    targets = rankings[
-        (rankings["predicted_points"] >= min_predicted) &
-        (rankings["selected_by_percent"] <= max_ownership) &
-        (rankings["status"] == "a")
-    ].sort_values("horizon_points" if sort_horizon else "predicted_value", ascending=False)
+    if grid.empty:
+        st.info("No upcoming fixtures ingested yet.")
+    else:
+        gw_cols = sorted(grid["event_id"].unique())
 
-    st.dataframe(
-        targets[["web_name", "position", "team", "price", "predicted_points", "horizon_points",
-                  "horizon_fixtures", "predicted_value", "selected_by_percent"]].rename(columns={
-            "web_name": "Player", "position": "Pos", "team": "Team", "price": "Price (£m)",
-            "predicted_points": "Predicted (next GW)", "horizon_points": f"Predicted (next {DEFAULT_HORIZON} GWs)",
-            "horizon_fixtures": "Fixtures in window", "predicted_value": "Predicted pts/£m",
-            "selected_by_percent": "Owned %",
-        }),
-        use_container_width=True, height=500,
-    )
+        def _cell(rows: pd.DataFrame) -> tuple[str, float]:
+            opp_label = " + ".join(f"{r['opponent']} ({'H' if r['is_home'] else 'A'})" for _, r in rows.iterrows())
+            return opp_label, rows["fixture_difficulty_score"].mean()
+
+        grid_rows = []
+        for team, team_rows in grid.groupby("team"):
+            row = {"Team": team}
+            scores = []
+            for gw in gw_cols:
+                gw_rows = team_rows[team_rows["event_id"] == gw]
+                if gw_rows.empty:
+                    row[f"GW{gw}"] = "—"
+                else:
+                    label, score = _cell(gw_rows)
+                    row[f"GW{gw}"] = label
+                    scores.append(score)
+            avg_score = np.mean(scores) if scores else 0.0
+            row["_avg"] = avg_score
+            row["Run rating"] = (
+                "Easy" if avg_score <= -0.2 else "Brutal" if avg_score >= 0.25 else "Mixed"
+            )
+            grid_rows.append(row)
+        grid_df = pd.DataFrame(grid_rows).sort_values("_avg")
+
+        # Cell background by that team-gameweek's own difficulty score - a real, per-cell scale
+        # (green=easy through red=brutal), not just the row-level run rating.
+        score_lookup = {
+            (t, gw): grid[(grid["team"] == t) & (grid["event_id"] == gw)]["fixture_difficulty_score"].mean()
+            for t in grid_df["Team"] for gw in gw_cols
+        }
+
+        display_cols = ["Team"] + [f"GW{gw}" for gw in gw_cols] + ["Run rating"]
+
+        def _style_row(row: pd.Series) -> list[str]:
+            # Must return exactly one style per column in `subset` below (display_cols), not
+            # per column in the full grid_df - Styler.apply with a subset maps the returned
+            # list positionally onto the subset, and a length mismatch raises ValueError.
+            styles = []
+            for col in display_cols:
+                if col not in [f"GW{gw}" for gw in gw_cols]:
+                    styles.append("")
+                    continue
+                gw = int(col.replace("GW", ""))
+                score = score_lookup.get((row["Team"], gw))
+                if score is None or pd.isna(score):
+                    styles.append(f"background-color:{CARD_BG};color:{TEXT_MUTED};")
+                elif score <= -0.35:
+                    styles.append(f"background-color:{STATUS_GOOD};color:{BG};font-weight:600;")
+                elif score <= -0.1:
+                    styles.append(f"background-color:#15803D;color:{TEXT_PRIMARY};font-weight:600;")
+                elif score <= 0.1:
+                    styles.append(f"background-color:{CARD_BORDER};color:{TEXT_PRIMARY};")
+                elif score <= 0.35:
+                    styles.append(f"background-color:{STATUS_WARNING};color:{BG};font-weight:600;")
+                else:
+                    styles.append(f"background-color:{CAPTAIN_BADGE};color:#fff;font-weight:600;")
+            return styles
+
+        styled = grid_df[display_cols].style.apply(_style_row, axis=1, subset=display_cols)
+        st.dataframe(styled, use_container_width=True, hide_index=True, height=(len(grid_df) + 1) * 38)
+
+        best_team = grid_df.iloc[0]
+        worst_team = grid_df.iloc[-1]
+        insight_cols = st.columns(2)
+        with insight_cols[0]:
+            components.html(render_action_tile_html(
+                "good", f"{best_team['Team']}: best run in the window",
+                f"Lowest average fixture difficulty over the next {DEFAULT_HORIZON} gameweeks.",
+            ), height=110)
+        with insight_cols[1]:
+            components.html(render_action_tile_html(
+                "attention", f"{worst_team['Team']}: hardest run in the window",
+                f"Highest average fixture difficulty over the next {DEFAULT_HORIZON} gameweeks.",
+            ), height=110)
+
+        if settings.ENTRY_ID:
+            owned_squad, _ = load_squad(season, settings.ENTRY_ID)
+            if not owned_squad.empty:
+                owned_teams = set(owned_squad["team"])
+                if worst_team["Team"] in owned_teams:
+                    st.warning(
+                        f"You own players from **{worst_team['Team']}**, this window's hardest run — "
+                        "worth checking if any are worth rotating out before it starts."
+                    )
 
 with tab_optimal:
     st.subheader("Optimal squad from scratch")
@@ -873,36 +1017,61 @@ with tab_optimal:
     if opt_squad is None:
         st.error("No feasible squad found at this budget — try raising it.")
     else:
-        st.metric(f"Projected starting XI points (incl. captain double) — {opt_label}", round(opt_objective, 2))
-        display_squad = opt_squad.copy()
-        display_squad["role"] = display_squad.apply(
-            lambda r: "C" if r["captain"] else ("Start" if r["starting"] else "Bench"), axis=1
-        )
-        st.dataframe(
-            display_squad.sort_values(["position", "starting"], ascending=[True, False])[
-                ["web_name", "position", "team", "price", opt_value_col, "role"]
-            ].rename(columns={
-                "web_name": "Player", "position": "Pos", "team": "Team",
-                "price": "Price (£m)", opt_value_col: opt_label, "role": "Role",
-            }),
-            use_container_width=True, hide_index=True, height=560,
-        )
-        st.caption(f"Total spend: £{opt_squad['price'].sum():.1f}m of £{budget:.1f}m budget")
+        opt_squad = opt_squad.copy()
+        opt_squad["is_captain"] = opt_squad["captain"]
+        # The MILP only selects a captain, not a vice - a real gap in squad_builder.py, not
+        # papered over here: every badge below renders without a vice-captain marker.
+        opt_squad["is_vice_captain"] = False
+        opt_squad["multiplier"] = opt_squad["starting"].astype(int)
+        opt_starting = opt_squad[opt_squad["starting"]]
+        opt_bench = opt_squad[~opt_squad["starting"]]
 
+        stat_cols = st.columns(3 if settings.ENTRY_ID else 2)
+        with stat_cols[0]:
+            components.html(render_stat_tile_html(
+                "Projected XI points", f"{opt_objective:.1f}", sublabel="Captain doubled", accent=STATUS_GOOD,
+            ), height=124)
+        with stat_cols[1]:
+            spend = opt_squad["price"].sum()
+            components.html(render_stat_tile_html(
+                "Spend", f"£{spend:.1f}m", sublabel=f"£{budget - spend:.1f}m unspent",
+            ), height=124)
+
+        actual_total = None
         if settings.ENTRY_ID:
             actual_squad, _ = load_squad(season, settings.ENTRY_ID)
             actual_squad = actual_squad.merge(
                 rankings[["player_code", "horizon_points", "horizon_fixtures"]], on="player_code", how="left"
             )
-            actual_xi, _ = best_starting_xi(actual_squad, value_col=opt_value_col)
-            actual_total = actual_xi[opt_value_col].sum()
-            st.info(
-                f"For context (not apples-to-apples — this doesn't account for the cost of "
-                f"actually making these transfers): your current starting XI projects to "
-                f"**{actual_total:.2f}** points (uncaptained, {opt_label.lower()}); this "
-                f"from-scratch squad at the same £{budget:.1f}m budget projects to "
-                f"**{opt_objective:.2f}** (captained)."
-            )
+            if not actual_squad.empty:
+                actual_xi, _ = best_starting_xi(actual_squad, value_col=opt_value_col)
+                actual_total = actual_xi[opt_value_col].sum()
+                with stat_cols[2]:
+                    components.html(render_stat_tile_html(
+                        "Your squad, same basis", f"{actual_total:.1f}",
+                        sublabel=f"{opt_objective - actual_total:+.1f} vs. this squad", accent=STATUS_WARNING,
+                    ), height=124)
+
+        st.markdown("#### The solver's XI")
+        components.html(render_pitch_html(opt_starting, set(), value_col=opt_value_col), height=500)
+        if not opt_bench.empty:
+            components.html(render_bench_html(opt_bench, set(), value_col=opt_value_col), height=120)
+
+        if settings.ENTRY_ID and not actual_squad.empty:
+            overlap = set(opt_squad["player_code"]) & set(actual_squad["player_code"])
+            transfers_needed = 15 - len(overlap)
+            components.html(render_action_tile_html(
+                "good" if transfers_needed == 0 else "attention",
+                f"{len(overlap)} of your 15 already match this squad",
+                "Your squad already matches." if transfers_needed == 0 else
+                f"Getting the rest costs {transfers_needed} transfers — a wildcard decision, not a weekly one.",
+            ), height=110)
+
+        st.caption(
+            "Solved as one integer program: squad and starting XI chosen together, captain's "
+            f"double included, max 3 per club. Total spend £{opt_squad['price'].sum():.1f}m of "
+            f"£{budget:.1f}m budget."
+        )
 
 with tab_model_lab:
     st.subheader("Model Lab")
