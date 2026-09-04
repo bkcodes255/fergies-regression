@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from config import settings
 from src.features.historical_features import FEATURE_COLS as ALL_HISTORICAL_FEATURE_COLS
@@ -228,6 +229,202 @@ def group_features(all_features: list[str]) -> dict[str, list[str]]:
     return groups
 
 
+@st.cache_data(ttl=300)
+def load_next_deadline(season: str) -> dict | None:
+    df = pd.read_sql_query(
+        """
+        SELECT event_id, name, deadline_time FROM gameweeks
+        WHERE season = %(season)s AND NOT finished AND deadline_time > now()
+        ORDER BY deadline_time ASC LIMIT 1
+        """,
+        get_engine(), params={"season": season},
+    )
+    if df.empty:
+        return None
+    row = df.iloc[0]
+    return {"event_id": int(row["event_id"]), "name": row["name"], "deadline_time": row["deadline_time"]}
+
+
+def format_time_left(deadline_time) -> str:
+    delta = deadline_time - pd.Timestamp.now(tz="UTC")
+    total_seconds = delta.total_seconds()
+    if total_seconds <= 0:
+        return "deadline passed"
+    days, rem = divmod(int(total_seconds), 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes = rem // 60
+    if days > 0:
+        return f"{days}d {hours}h"
+    return f"{hours}h {minutes}m"
+
+
+# Position identity color (fixed order, never cycled - see the dataviz skill's color
+# formula): distinct categorical hues from the project's validated palette, one per FPL
+# position, used consistently across the pitch view and bench strip below.
+POSITION_ACCENT = {"GKP": "#4a3aa7", "DEF": "#2a78d6", "MID": "#1baf7a", "FWD": "#eb6834"}
+CAPTAIN_GOLD = "#eda100"
+STATUS_GOOD = "#0ca30c"
+STATUS_WARNING = "#fab219"
+# A distinct magenta, deliberately NOT the DEF accent (#2a78d6) - this ring marks "the model's
+# suggested captain," a different signal than position identity, and reusing DEF's blue would
+# make a highlighted midfielder/forward read as if they'd become a defender.
+MODEL_PICK_ACCENT = "#e87ba4"
+
+
+def captain_recommendation(starting: pd.DataFrame) -> dict | None:
+    """Compares the model's top-predicted starter against the currently-armbanded captain -
+    None if either side can't be determined (no predictions yet, or no captain flagged)."""
+    if starting.empty or starting["predicted_points"].isna().all():
+        return None
+    current = starting[starting["is_captain"]]
+    if current.empty:
+        return None
+    best_row = starting.loc[starting["predicted_points"].idxmax()]
+    current_row = current.iloc[0]
+    return {
+        "matches": best_row["player_code"] == current_row["player_code"],
+        "recommended_code": best_row["player_code"], "recommended_name": best_row["web_name"],
+        "recommended_points": best_row["predicted_points"],
+        "current_name": current_row["web_name"], "current_points": current_row["predicted_points"],
+    }
+
+
+def lineup_changes(squad: pd.DataFrame) -> dict:
+    """Diffs the actual starting XI against best_starting_xi's recommendation by player_code -
+    empty bring_in/bench_out means the fielded lineup is already optimal."""
+    starting_codes = set(squad.loc[squad["multiplier"] > 0, "player_code"])
+    optimal_xi, formation = best_starting_xi(squad)
+    optimal_codes = set(optimal_xi["player_code"])
+    return {
+        "bring_in_codes": optimal_codes - starting_codes,
+        "bench_out_codes": starting_codes - optimal_codes,
+        "optimal_points": optimal_xi["predicted_points"].sum(),
+        "formation": formation,
+    }
+
+
+def _player_badge_html(player: pd.Series, size: int, is_captain: bool, is_vice: bool,
+                        is_recommended_captain: bool, swap_flag: str | None) -> str:
+    accent = POSITION_ACCENT.get(player["position"], "#898781")
+    predicted = player.get("predicted_points")
+    predicted_str = f"{predicted:.1f} pts" if pd.notna(predicted) else "— pts"
+    ring = ""
+    footer = ""
+    if swap_flag == "start":
+        ring = f"box-shadow:0 0 0 3px {STATUS_GOOD};"
+        footer = f'<div style="font-size:10px;color:{STATUS_GOOD};font-weight:700;">&#9650; consider starting</div>'
+    elif swap_flag == "bench":
+        ring = f"box-shadow:0 0 0 3px {STATUS_WARNING};"
+        footer = f'<div style="font-size:10px;color:{STATUS_WARNING};font-weight:700;">&#9660; consider bench</div>'
+    elif is_recommended_captain and not is_captain:
+        ring = f"box-shadow:0 0 0 3px {MODEL_PICK_ACCENT};"
+        footer = f'<div style="font-size:10px;color:{MODEL_PICK_ACCENT};font-weight:700;">&#9733; model\'s captain</div>'
+
+    badge = ""
+    if is_captain:
+        badge = (f'<div style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;'
+                  f'border-radius:50%;background:{CAPTAIN_GOLD};color:#0b0b0b;font-size:11px;'
+                  f'font-weight:800;display:flex;align-items:center;justify-content:center;'
+                  f'border:2px solid #fff;">C</div>')
+    elif is_vice:
+        badge = (f'<div style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;'
+                  f'border-radius:50%;background:#c3c2b7;color:#0b0b0b;font-size:11px;'
+                  f'font-weight:800;display:flex;align-items:center;justify-content:center;'
+                  f'border:2px solid #fff;">V</div>')
+
+    return f"""
+    <div style="text-align:center;width:80px;">
+      <div style="position:relative;width:{size}px;height:{size}px;margin:0 auto;">
+        <div style="width:{size}px;height:{size}px;border-radius:50%;background:#ffffff;
+                    border:3px solid {accent};{ring}"></div>
+        {badge}
+      </div>
+      <div style="margin-top:4px;background:rgba(11,11,11,0.72);border-radius:6px;padding:2px 4px;">
+        <div style="color:#fff;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;
+                    text-overflow:ellipsis;">{player['web_name']}</div>
+        <div style="color:#fff;font-size:11px;font-weight:700;">{predicted_str}</div>
+      </div>
+      {footer}
+    </div>
+    """
+
+
+def render_pitch_html(starting: pd.DataFrame, recommended_captain_code, bench_out_codes: set) -> str:
+    """An FPL-style pitch view of the actual starting XI (no external kit/crest images - those
+    would need FPL's own CDN, unnecessary and unavailable here). Position = a fixed accent
+    color; the captain gets a gold armband badge; a model disagreement (suggested captain
+    swap, or a starter the model would bench) is called out with BOTH a status-colored ring
+    and a text label - never color alone, per the dataviz skill's accessibility rule."""
+    row_top_pct = {"FWD": 8, "MID": 34, "DEF": 60, "GKP": 84}
+    cards = []
+    for pos in ("FWD", "MID", "DEF", "GKP"):
+        row_players = starting[starting["position"] == pos].reset_index(drop=True)
+        n = len(row_players)
+        for i, player in row_players.iterrows():
+            left_pct = (i + 0.5) / n * 100 if n else 50
+            swap_flag = "bench" if player["player_code"] in bench_out_codes else None
+            card = _player_badge_html(
+                player, size=48, is_captain=bool(player["is_captain"]), is_vice=bool(player["is_vice_captain"]),
+                is_recommended_captain=(player["player_code"] == recommended_captain_code), swap_flag=swap_flag,
+            )
+            cards.append(
+                f'<div style="position:absolute;top:{row_top_pct[pos]}%;left:{left_pct}%;'
+                f'transform:translate(-50%,-50%);">{card}</div>'
+            )
+    return f"""
+    <div style="position:relative;width:100%;height:480px;border-radius:16px;overflow:hidden;
+                background:repeating-linear-gradient(180deg,#1f9d4a 0,#1f9d4a 48px,#1c8f43 48px,#1c8f43 96px);">
+      <div style="position:absolute;left:0;right:0;top:50%;height:2px;background:rgba(255,255,255,0.45);"></div>
+      <div style="position:absolute;left:50%;top:50%;width:100px;height:100px;
+                  border:2px solid rgba(255,255,255,0.45);border-radius:50%;transform:translate(-50%,-50%);"></div>
+      <div style="position:absolute;left:50%;top:0;width:180px;height:36px;
+                  border:2px solid rgba(255,255,255,0.45);border-top:none;transform:translateX(-50%);"></div>
+      <div style="position:absolute;left:50%;bottom:0;width:180px;height:36px;
+                  border:2px solid rgba(255,255,255,0.45);border-bottom:none;transform:translateX(-50%);"></div>
+      {''.join(cards)}
+    </div>
+    """
+
+
+def render_bench_html(bench: pd.DataFrame, bring_in_codes: set) -> str:
+    items = []
+    for _, player in bench.iterrows():
+        swap_flag = "start" if player["player_code"] in bring_in_codes else None
+        items.append(_player_badge_html(
+            player, size=38, is_captain=False, is_vice=bool(player["is_vice_captain"]),
+            is_recommended_captain=False, swap_flag=swap_flag,
+        ))
+    return f"""
+    <div style="display:flex;gap:16px;align-items:flex-start;justify-content:center;
+                padding:16px 10px;background:#f0efec;border-radius:12px;margin-top:12px;">
+      <div style="font-size:11px;color:#898781;font-weight:700;align-self:center;">BENCH</div>
+      {''.join(items)}
+    </div>
+    """
+
+
+def render_transfer_card_html(sell_row: pd.Series, buy_row: pd.Series) -> str:
+    def _card(player: pd.Series, accent: str) -> str:
+        return f"""
+        <div style="text-align:center;width:120px;">
+          <div style="width:56px;height:56px;margin:0 auto;border-radius:50%;background:#ffffff;
+                      border:3px solid {accent};"></div>
+          <div style="margin-top:6px;font-weight:700;font-size:13px;">{player['web_name']}</div>
+          <div style="font-size:11px;color:#52514e;">£{player['price']:.1f}m</div>
+          <div style="font-size:13px;font-weight:700;color:{accent};margin-top:2px;">
+            {player['predicted_points']:.1f} pts
+          </div>
+        </div>
+        """
+    return f"""
+    <div style="display:flex;align-items:center;justify-content:center;gap:18px;padding:12px 0;">
+      {_card(sell_row, "#898781")}
+      <div style="font-size:22px;color:{STATUS_GOOD};">&#8594;</div>
+      {_card(buy_row, STATUS_GOOD)}
+    </div>
+    """
+
+
 season = settings.SEASON
 st.title("Fergie's Regression")
 st.caption("An FPL Analytics Report")
@@ -252,6 +449,7 @@ if last_gw is not None and last_gw <= 2:
 tab_names = ["Player Rankings", "Fixture Planner", "Transfer Targets", "Optimal Squad", "Model Lab"]
 if settings.ENTRY_ID:
     tab_names.insert(0, "My Squad")
+    tab_names.insert(0, "This Week")
 tabs = st.tabs(tab_names)
 tab_lookup = dict(zip(tab_names, tabs))
 tab_rankings = tab_lookup["Player Rankings"]
@@ -259,6 +457,101 @@ tab_fixtures = tab_lookup["Fixture Planner"]
 tab_targets = tab_lookup["Transfer Targets"]
 tab_optimal = tab_lookup["Optimal Squad"]
 tab_model_lab = tab_lookup["Model Lab"]
+
+if settings.ENTRY_ID:
+    with tab_lookup["This Week"]:
+        squad, manager_gw = load_squad(season, settings.ENTRY_ID)
+        deadline = load_next_deadline(season)
+
+        if squad.empty:
+            st.warning("No squad data ingested yet. Run `python -m src.ingestion.load_manager` first.")
+        else:
+            starting = squad[squad["multiplier"] > 0].copy()
+            bench = squad[squad["multiplier"] == 0].copy()
+
+            header_cols = st.columns([2, 1, 1])
+            if deadline is not None:
+                header_cols[0].markdown(
+                    f"### {deadline['name']} — deadline in **{format_time_left(deadline['deadline_time'])}**"
+                )
+            else:
+                header_cols[0].markdown("### No upcoming deadline found")
+            gw_row = manager_gw.iloc[0] if not manager_gw.empty else None
+            free_transfers = compute_free_transfers(manager_gw)
+            bank = float(gw_row["bank"]) / 10 if gw_row is not None else 0.0
+            header_cols[1].metric("Free transfers", free_transfers)
+            header_cols[2].metric("Bank", f"£{bank:.1f}m")
+
+            cap = captain_recommendation(starting)
+            changes = lineup_changes(squad)
+
+            st.markdown("#### Your team")
+            pitch_html = render_pitch_html(
+                starting,
+                recommended_captain_code=cap["recommended_code"] if cap else None,
+                bench_out_codes=changes["bench_out_codes"],
+            )
+            components.html(pitch_html, height=500)
+            if not bench.empty:
+                components.html(render_bench_html(bench, changes["bring_in_codes"]), height=120)
+
+            action_cols = st.columns(2)
+            with action_cols[0]:
+                if cap is None:
+                    st.info("Captain recommendation unavailable — no prediction for this gameweek yet.")
+                elif cap["matches"]:
+                    st.success(f"**Captain: {cap['current_name']}** is already the model's top pick.")
+                else:
+                    st.warning(
+                        f"**Switch captain:** {cap['recommended_name']} "
+                        f"({cap['recommended_points']:.1f} pred.) over {cap['current_name']} "
+                        f"({cap['current_points']:.1f} pred.)."
+                    )
+            with action_cols[1]:
+                if not changes["bring_in_codes"] and not changes["bench_out_codes"]:
+                    st.success("**Lineup: already optimal** for this formation and squad.")
+                else:
+                    gain = changes["optimal_points"] - starting["predicted_points"].sum()
+                    st.warning(f"**Lineup change available:** +{gain:.1f} predicted points — see highlighted players above.")
+
+            st.divider()
+            st.markdown("#### Recommended transfer")
+            plan, _, remaining_bank = suggest_transfer_plan(squad, rankings, bank, free_transfers)
+            if plan.empty:
+                st.success("**No transfer recommended** — your squad already looks efficient.")
+            else:
+                top = plan.iloc[0]
+                sell_row = squad[squad["web_name"] == top["sell"]].iloc[0]
+                buy_row = rankings[rankings["web_name"] == top["buy"]].iloc[0]
+                components.html(render_transfer_card_html(sell_row, buy_row), height=140)
+                st.metric("Net gain (after any hit)", f"{top['net']:+.1f} pts")
+
+            st.divider()
+            st.markdown("#### Range of outcomes")
+            sim_totals = simulate_squad(starting, n_samples=10000)
+            sim_stats = summarize_simulation(sim_totals)
+            range_cols = st.columns(4)
+            range_cols[0].metric("Likely (median)", f"{sim_stats['p50']:.0f}")
+            range_cols[1].metric("Bad week (p10)", f"{sim_stats['p10']:.0f}")
+            range_cols[2].metric("Great week (p90)", f"{sim_stats['p90']:.0f}")
+            range_cols[3].metric("P(80+ pts)", f"{sim_stats['p_beat_80']:.0%}")
+
+            fig, ax = plt.subplots(figsize=(8, 3))
+            ax.hist(sim_totals, bins=50, color="#3987e5", alpha=0.85, edgecolor="none")
+            for pct, label, color in [(10, "p10", "#898781"), (50, "median", "#0b0b0b"), (90, "p90", "#898781")]:
+                x = np.percentile(sim_totals, pct)
+                ax.axvline(x, color=color, linestyle="--", linewidth=1)
+                ax.text(x, ax.get_ylim()[1] * 0.95, label, color=color, fontsize=9, ha="center")
+            ax.set_xlabel("Simulated starting XI points (captain doubled)")
+            ax.set_yticks([])
+            for spine in ("top", "right", "left"):
+                ax.spines[spine].set_visible(False)
+            plt.tight_layout()
+            st.pyplot(fig)
+            st.caption(
+                "See the **My Squad** tab for full detail — gameweek history, the coordinated "
+                "multi-transfer plan, and every methodology caveat."
+            )
 
 if settings.ENTRY_ID:
     with tab_lookup["My Squad"]:
