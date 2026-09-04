@@ -34,3 +34,9 @@ FPL_API_AUTHORIZATION = os.environ.get("FPL_API_AUTHORIZATION")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 _telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
 TELEGRAM_CHAT_ID = int(_telegram_chat_id) if _telegram_chat_id else None
+
+# Only needed for scripts/scrape_crests_to_supabase.py. SUPABASE_SERVICE_ROLE_KEY bypasses
+# RLS - keep it out of .env.example's tracked defaults and never log or print it.
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_CRESTS_BUCKET = os.environ.get("SUPABASE_CRESTS_BUCKET", "team-crests")

@@ -16,3 +16,4 @@ pulp>=2.8
 python-telegram-bot[job-queue]>=21.0
 rapidfuzz>=3.9
 beautifulsoup4>=4.12
+supabase>=2.6
