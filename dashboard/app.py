@@ -5,6 +5,7 @@ Run with:
 """
 from __future__ import annotations
 
+import base64
 import json
 import sys
 from pathlib import Path
@@ -30,6 +31,28 @@ from src.recommendations.squad_optimizer import best_starting_xi
 from src.recommendations.transfers import compute_free_transfers, suggest_transfer_plan
 
 st.set_page_config(page_title="Fergie's Regression", layout="wide")
+
+# Streamlit's native tab bar doesn't wrap - on a narrow screen it just scrolls horizontally,
+# so the last tab ("Model Lab") is permanently hidden behind a cut-off "M›" until the user
+# discovers they can swipe. This is real page CSS (not a components.html iframe), so it can
+# actually reach Streamlit's own tab-list DOM; letting it wrap to a second line is the simplest
+# fix that doesn't require shortening tab names or hand-rolling a tab bar.
+st.markdown(
+    """
+    <style>
+    div[data-testid="stTabs"] div[role="tablist"] {
+        flex-wrap: wrap;
+        overflow-x: visible;
+        row-gap: 4px;
+        column-gap: 16px;
+    }
+    div[data-testid="stTabs"] div[role="tablist"] button {
+        white-space: nowrap;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # get_connection()/get_engine() come from src/ingestion/db.py - the shared, retry- and
 # pool-health-aware DB helpers every part of this project uses now, not a dashboard-local copy.
@@ -279,6 +302,27 @@ STATUS_GOOD = "#22C55E"
 STATUS_WARNING = "#F59E0B"
 POSITION_ACCENT = {"GKP": "#8B94A8", "DEF": "#3B82F6", "MID": "#A855F7", "FWD": "#06B6D4"}
 
+# Every tile below renders via st.components.v1.html, which mounts in its OWN sandboxed
+# iframe - it does NOT inherit the page's <link>/font-family from .streamlit/config.toml, so
+# without this every tile silently fell back to the browser's default sans-serif while the
+# surrounding Streamlit chrome (labels, dataframes, st.metric) correctly rendered in Inter.
+# Prepended to every returned HTML string below, not just declared once, because each
+# components.html call is a fully separate document.
+#
+# The <link> loads as rel="preload" and only flips to rel="stylesheet" once it has actually
+# finished (the onload handler) - a PLAIN <link rel="stylesheet"> is render-blocking, so on a
+# slow connection, a captive network, or an ad/tracker blocker that holds up
+# fonts.googleapis.com, every tile would sit completely blank until that fetch resolved or
+# timed out. This way the tile paints immediately in the system font stack and upgrades to
+# Inter only if/when it loads - a real bug caught by testing this in a network-constrained
+# sandbox, not a hypothetical.
+FONT_CSS = (
+    '<link rel="preload" as="style" '
+    'href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" '
+    'onload="this.onload=null;this.rel=\'stylesheet\'">'
+    "<style>*{font-family:'Inter',system-ui,-apple-system,sans-serif;box-sizing:border-box;margin:0;}</style>"
+)
+
 
 def captain_recommendation(starting: pd.DataFrame) -> dict | None:
     """Compares the model's top-predicted starter against the currently-armbanded captain -
@@ -313,12 +357,20 @@ def lineup_changes(squad: pd.DataFrame) -> dict:
 
 
 def render_stat_tile_html(label: str, value: str, sublabel: str | None = None, accent: str = TEXT_PRIMARY) -> str:
-    sub = f'<div style="font-size:12px;font-weight:500;color:{TEXT_MUTED};">{sublabel}</div>' if sublabel else ""
+    # clamp(), not a fixed px size, on the headline number: a tile's own iframe can be
+    # anywhere from ~90px wide (4-across on a phone) to ~300px (desktop) - vw is relative to
+    # THIS iframe's own viewport, so the number shrinks to fit instead of forcing the "1,500,000"
+    # rank or a long label to wrap and blow out the tile's fixed height.
+    sub = f'<div style="font-size:clamp(10px,3vw,12px);font-weight:500;color:{TEXT_MUTED};">{sublabel}</div>' if sublabel else ""
     return f"""
-    <div style="background:{CARD_BG};border:1px solid {CARD_BORDER};border-radius:16px;padding:18px 20px;
-                display:flex;flex-direction:column;gap:6px;height:100%;box-sizing:border-box;justify-content:center;">
-      <div style="font-size:12px;font-weight:500;color:{TEXT_MUTED};letter-spacing:0.02em;">{label}</div>
-      <div style="font-size:28px;font-weight:700;color:{accent};line-height:1.1;">{value}</div>
+    {FONT_CSS}
+    <div style="background:{CARD_BG};border:1px solid {CARD_BORDER};border-radius:16px;padding:14px 16px;
+                display:flex;flex-direction:column;gap:6px;height:100%;box-sizing:border-box;justify-content:center;
+                overflow:hidden;">
+      <div style="font-size:clamp(10px,3vw,12px);font-weight:500;color:{TEXT_MUTED};letter-spacing:0.02em;
+                  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{label}</div>
+      <div style="font-size:clamp(16px,7vw,28px);font-weight:700;color:{accent};line-height:1.1;
+                  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{value}</div>
       {sub}
     </div>
     """
@@ -337,21 +389,43 @@ def render_action_tile_html(status: str, headline: str, subtext: str) -> str:
         'stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>'
     )
     return f"""
+    {FONT_CSS}
     <div style="background:{CARD_BG};border:1px solid {CARD_BORDER};border-left:3px solid {accent};
-                border-radius:16px;padding:20px 22px;display:flex;gap:14px;align-items:flex-start;
-                height:100%;box-sizing:border-box;">
-      <div style="flex:0 0 auto;width:32px;height:32px;border-radius:50%;background:{accent};
+                border-radius:16px;padding:16px 18px;display:flex;gap:12px;align-items:flex-start;
+                height:100%;box-sizing:border-box;overflow:hidden;">
+      <div style="flex:0 0 auto;width:28px;height:28px;border-radius:50%;background:{accent};
                   display:flex;align-items:center;justify-content:center;">{icon}</div>
       <div style="display:flex;flex-direction:column;gap:4px;min-width:0;">
-        <div style="font-size:15px;font-weight:600;color:{TEXT_PRIMARY};">{headline}</div>
-        <div style="font-size:13px;color:{TEXT_MUTED};line-height:1.4;">{subtext}</div>
+        <div style="font-size:clamp(13px,3.6vw,15px);font-weight:600;color:{TEXT_PRIMARY};line-height:1.3;">{headline}</div>
+        <div style="font-size:clamp(11px,3.2vw,13px);color:{TEXT_MUTED};line-height:1.4;">{subtext}</div>
       </div>
     </div>
     """
 
 
+# Team crests: components.html's iframe has no access to Streamlit's own static-file serving,
+# so a local image only works embedded as a base64 data URI. Drop files in here as
+# assets/badges/<TEAM_SHORT_NAME>.png (e.g. assets/badges/LIV.png, matching the `team` column's
+# short_name values) - _crest_data_uri() picks them up automatically, no code change needed.
+# Until then every team falls back to the plain colored badge below, not a broken image icon.
+BADGE_DIR = Path(__file__).resolve().parent / "assets" / "badges"
+_BADGE_MIME = {"png": "image/png", "svg": "image/svg+xml", "jpg": "image/jpeg",
+               "jpeg": "image/jpeg", "webp": "image/webp"}
+
+
+@st.cache_data(ttl=3600)
+def _crest_data_uri(team_short_name: str | None) -> str | None:
+    if not team_short_name or not BADGE_DIR.exists():
+        return None
+    for ext, mime in _BADGE_MIME.items():
+        path = BADGE_DIR / f"{team_short_name.upper()}.{ext}"
+        if path.exists():
+            return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
+    return None
+
+
 def _player_badge_html(name: str, points, position: str, size: int, is_captain: bool = False,
-                        is_vice: bool = False, swap_flag: str | None = None) -> str:
+                        is_vice: bool = False, swap_flag: str | None = None, team: str | None = None) -> str:
     accent = POSITION_ACCENT.get(position, TEXT_MUTED)
     points_str = f"{points:.1f} pts" if pd.notna(points) else "— pts"
     ring = ""
@@ -375,17 +449,26 @@ def _player_badge_html(name: str, points, position: str, size: int, is_captain: 
                   f'font-weight:800;display:flex;align-items:center;justify-content:center;'
                   f'border:2px solid {BG};">V</div>')
 
+    crest = _crest_data_uri(team)
+    circle = (
+        f'<img src="{crest}" alt="" style="width:{size}px;height:{size}px;border-radius:50%;'
+        f'object-fit:cover;border:3px solid {accent};{ring}background:{CARD_BG};">'
+        if crest else
+        f'<div style="width:{size}px;height:{size}px;border-radius:50%;background:{CARD_BG};'
+        f'border:3px solid {accent};{ring}"></div>'
+    )
+
     return f"""
-    <div style="text-align:center;width:{max(size + 34, 76)}px;">
+    {FONT_CSS}
+    <div style="text-align:center;width:{max(size + 34, 78)}px;">
       <div style="position:relative;width:{size}px;height:{size}px;margin:0 auto;">
-        <div style="width:{size}px;height:{size}px;border-radius:50%;background:{CARD_BG};
-                    border:3px solid {accent};{ring}"></div>
+        {circle}
         {badge}
       </div>
       <div style="margin-top:4px;background:rgba(15,20,32,0.85);border-radius:8px;padding:3px 6px;">
-        <div style="color:{TEXT_PRIMARY};font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;
-                    text-overflow:ellipsis;">{name}</div>
-        <div style="color:{TEXT_PRIMARY};font-size:11px;font-weight:700;">{points_str}</div>
+        <div style="color:{TEXT_PRIMARY};font-size:11px;font-weight:600;line-height:1.25;
+                    display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;">{name}</div>
+        <div style="color:{TEXT_PRIMARY};font-size:11px;font-weight:700;white-space:nowrap;">{points_str}</div>
       </div>
       {footer}
     </div>
@@ -410,13 +493,14 @@ def render_pitch_html(starting: pd.DataFrame, bench_out_codes: set, value_col: s
             card = _player_badge_html(
                 player["web_name"], player.get(value_col), player["position"], size=48,
                 is_captain=bool(player.get("is_captain", False)), is_vice=bool(player.get("is_vice_captain", False)),
-                swap_flag=swap_flag,
+                swap_flag=swap_flag, team=player.get("team"),
             )
             cards.append(
                 f'<div style="position:absolute;top:{row_top_pct[pos]}%;left:{left_pct}%;'
                 f'transform:translate(-50%,-50%);">{card}</div>'
             )
     return f"""
+    {FONT_CSS}
     <div style="position:relative;width:100%;height:480px;border-radius:16px;overflow:hidden;
                 background:repeating-linear-gradient(180deg,#1f9d4a 0,#1f9d4a 48px,#1c8f43 48px,#1c8f43 96px);">
       <div style="position:absolute;left:0;right:0;top:50%;height:2px;background:rgba(255,255,255,0.45);"></div>
@@ -437,10 +521,11 @@ def render_bench_html(bench: pd.DataFrame, bring_in_codes: set, value_col: str =
         swap_flag = "start" if player["player_code"] in bring_in_codes else None
         items.append(_player_badge_html(
             player["web_name"], player.get(value_col), player["position"], size=38,
-            is_vice=bool(player.get("is_vice_captain", False)), swap_flag=swap_flag,
+            is_vice=bool(player.get("is_vice_captain", False)), swap_flag=swap_flag, team=player.get("team"),
         ))
     return f"""
-    <div style="display:flex;gap:16px;align-items:flex-start;justify-content:center;
+    {FONT_CSS}
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;justify-content:center;
                 padding:16px 10px;background:{CARD_BG};border:1px solid {CARD_BORDER};
                 border-radius:12px;margin-top:12px;">
       <div style="font-size:11px;color:{TEXT_MUTED};font-weight:700;align-self:center;">BENCH</div>
@@ -451,21 +536,29 @@ def render_bench_html(bench: pd.DataFrame, bring_in_codes: set, value_col: str =
 
 def render_transfer_card_html(sell_row: pd.Series, buy_row: pd.Series, value_col: str = "predicted_points") -> str:
     def _card(player: pd.Series, accent: str) -> str:
+        crest = _crest_data_uri(player.get("team"))
+        circle = (
+            f'<img src="{crest}" alt="" style="width:48px;height:48px;border-radius:50%;'
+            f'object-fit:cover;border:3px solid {accent};">'
+            if crest else
+            f'<div style="width:48px;height:48px;border-radius:50%;background:{CARD_BG};border:3px solid {accent};"></div>'
+        )
         return f"""
-        <div style="text-align:center;width:120px;">
-          <div style="width:56px;height:56px;margin:0 auto;border-radius:50%;background:{CARD_BG};
-                      border:3px solid {accent};"></div>
-          <div style="margin-top:6px;font-weight:700;font-size:13px;color:{TEXT_PRIMARY};">{player['web_name']}</div>
-          <div style="font-size:11px;color:{TEXT_MUTED};">£{player['price']:.1f}m</div>
-          <div style="font-size:13px;font-weight:700;color:{accent};margin-top:2px;">
+        <div style="text-align:center;width:110px;min-width:0;">
+          <div style="margin:0 auto;">{circle}</div>
+          <div style="margin-top:6px;font-weight:700;font-size:clamp(11px,3.5vw,13px);color:{TEXT_PRIMARY};
+                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{player['web_name']}</div>
+          <div style="font-size:clamp(9px,3vw,11px);color:{TEXT_MUTED};">£{player['price']:.1f}m</div>
+          <div style="font-size:clamp(11px,3.5vw,13px);font-weight:700;color:{accent};margin-top:2px;">
             {player[value_col]:.1f} pts
           </div>
         </div>
         """
     return f"""
-    <div style="display:flex;align-items:center;justify-content:center;gap:18px;padding:12px 0;">
+    {FONT_CSS}
+    <div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:12px 0;">
       {_card(sell_row, TEXT_MUTED)}
-      <div style="font-size:22px;color:{STATUS_GOOD};">&#8594;</div>
+      <div style="font-size:22px;color:{STATUS_GOOD};flex:0 0 auto;">&#8594;</div>
       {_card(buy_row, STATUS_GOOD)}
     </div>
     """
@@ -488,32 +581,48 @@ def render_player_row_html(name: str, team: str, price: float, position: str, pr
     range_right = pct(ceiling)
     range_width = max(0.0, range_right - range_left)
     ceiling_color = STATUS_GOOD if ceiling_pct >= 20 else TEXT_PRIMARY
+    accent = POSITION_ACCENT.get(position, TEXT_MUTED)
+    crest = _crest_data_uri(team)
+    dot = (
+        f'<img src="{crest}" alt="" style="flex:0 0 auto;width:18px;height:18px;border-radius:50%;'
+        f'object-fit:cover;border:1px solid {accent};">'
+        if crest else
+        f'<div style="flex:0 0 auto;width:10px;height:10px;border-radius:50%;background:{accent};"></div>'
+    )
+    # minmax()+fr columns, not fixed px: on a ~350px phone-width iframe these shrink toward
+    # their floors instead of forcing the row wider than its container (the bug this replaced -
+    # a fixed 230/1fr/200/92px grid left the range bar and ceiling% crushed to nothing below
+    # ~600px). Row height stays constant at any width - nothing here wraps to a second line,
+    # values just get smaller (clamp()) or truncate (the name), which is normal table behavior.
     return f"""
-    <div style="display:grid;grid-template-columns:230px 1fr 200px 92px;gap:20px;align-items:center;
-                background:{CARD_BG};border:1px solid {CARD_BORDER};border-radius:12px;padding:14px 18px;">
-      <div style="display:flex;align-items:center;gap:12px;min-width:0;">
-        <div style="flex:0 0 auto;width:10px;height:10px;border-radius:50%;background:{POSITION_ACCENT.get(position, TEXT_MUTED)};"></div>
+    {FONT_CSS}
+    <div style="display:grid;grid-template-columns:minmax(96px,1.6fr) minmax(64px,1.2fr) minmax(64px,1.2fr) minmax(38px,0.6fr);
+                gap:clamp(8px,2.5vw,20px);align-items:center;
+                background:{CARD_BG};border:1px solid {CARD_BORDER};border-radius:12px;padding:12px clamp(10px,3vw,18px);
+                overflow:hidden;">
+      <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+        {dot}
         <div style="min-width:0;">
-          <div style="font-size:14px;font-weight:600;color:{TEXT_PRIMARY};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>
-          <div style="font-size:12px;color:{TEXT_MUTED};">{team} · £{price:.1f}m</div>
+          <div style="font-size:clamp(12px,3.6vw,14px);font-weight:600;color:{TEXT_PRIMARY};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>
+          <div style="font-size:clamp(10px,3vw,12px);color:{TEXT_MUTED};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{team} · £{price:.1f}m</div>
         </div>
       </div>
-      <div style="display:flex;align-items:center;gap:12px;">
-        <div style="flex:1;height:8px;border-radius:999px;background:{BG};overflow:hidden;">
-          <div style="width:{predicted_pct}%;height:100%;border-radius:999px;background:{POSITION_ACCENT.get(position, TEXT_MUTED)};"></div>
+      <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+        <div style="flex:1;min-width:0;height:8px;border-radius:999px;background:{BG};overflow:hidden;">
+          <div style="width:{predicted_pct}%;height:100%;border-radius:999px;background:{accent};"></div>
         </div>
-        <div style="font-size:15px;font-weight:700;color:{TEXT_PRIMARY};width:38px;text-align:right;">{predicted:.1f}</div>
+        <div style="flex:0 0 auto;font-size:clamp(12px,3.6vw,15px);font-weight:700;color:{TEXT_PRIMARY};min-width:2ch;text-align:right;">{predicted:.1f}</div>
       </div>
-      <div>
+      <div style="min-width:0;">
         <div style="position:relative;height:8px;border-radius:999px;background:{BG};overflow:hidden;">
           <div style="position:absolute;left:{range_left}%;width:{range_width}%;top:0;height:100%;border-radius:999px;background:{CARD_BORDER};"></div>
           <div style="position:absolute;left:{predicted_pct}%;top:-3px;width:3px;height:14px;border-radius:2px;background:{TEXT_MUTED};"></div>
         </div>
-        <div style="font-size:11px;color:{TEXT_MUTED};margin-top:5px;">{floor:.1f} – {ceiling:.1f} pts</div>
+        <div style="font-size:clamp(9px,2.8vw,11px);color:{TEXT_MUTED};margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{floor:.1f} – {ceiling:.1f} pts</div>
       </div>
-      <div style="text-align:right;">
-        <div style="font-size:15px;font-weight:700;color:{ceiling_color};">{ceiling_pct:.0f}%</div>
-        <div style="font-size:11px;color:{TEXT_MUTED};">ceiling</div>
+      <div style="text-align:right;min-width:0;">
+        <div style="font-size:clamp(12px,3.6vw,15px);font-weight:700;color:{ceiling_color};">{ceiling_pct:.0f}%</div>
+        <div style="font-size:clamp(9px,2.8vw,11px);color:{TEXT_MUTED};">ceiling</div>
       </div>
     </div>
     """
@@ -667,16 +776,19 @@ if settings.ENTRY_ID:
             st.markdown("#### Range of outcomes")
             sim_totals = simulate_squad(starting, n_samples=10000)
             sim_stats = summarize_simulation(sim_totals)
-            range_tiles = "".join(
-                f'<div style="flex:1;">{render_stat_tile_html(label, value, accent=accent)}</div>'
-                for label, value, accent in [
-                    ("Likely (median)", f"{sim_stats['p50']:.0f}", TEXT_PRIMARY),
-                    ("Bad week (p10)", f"{sim_stats['p10']:.0f}", TEXT_PRIMARY),
-                    ("Great week (p90)", f"{sim_stats['p90']:.0f}", STATUS_GOOD),
-                    ("P(80+ pts)", f"{sim_stats['p_beat_80']:.0%}", TEXT_PRIMARY),
-                ]
-            )
-            components.html(f'<div style="display:flex;gap:16px;">{range_tiles}</div>', height=118)
+            # Four separate st.columns, not one bundled flex row: Streamlit stacks columns to
+            # full width on a narrow screen (the same pattern every other stat-tile row in this
+            # app already uses), which reads far better on a phone than four tiles squeezed
+            # into one line with shrinking fonts.
+            range_cols = st.columns(4)
+            for col, (label, value, accent) in zip(range_cols, [
+                ("Likely (median)", f"{sim_stats['p50']:.0f}", TEXT_PRIMARY),
+                ("Bad week (p10)", f"{sim_stats['p10']:.0f}", TEXT_PRIMARY),
+                ("Great week (p90)", f"{sim_stats['p90']:.0f}", STATUS_GOOD),
+                ("P(80+ pts)", f"{sim_stats['p_beat_80']:.0%}", TEXT_PRIMARY),
+            ]):
+                with col:
+                    components.html(render_stat_tile_html(label, value, accent=accent), height=118)
 
             fig, ax = plt.subplots(figsize=(8, 3))
             fig.patch.set_facecolor(BG)
