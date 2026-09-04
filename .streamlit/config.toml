@@ -26,9 +26,12 @@ chartSequentialColors = ["#161B28", "#2A1119", "#3F1520", "#551A26", "#6B1E2C", 
 dataframeBorderColor = "#232838"
 dataframeHeaderBackgroundColor = "#161B28"
 
-# Typography - rounded sans, matches the M-Digital look
-font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-headingFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@600;700&display=swap"
+# Typography - Space Grotesk: a geometric sans with a technical, stats-forward feel (built
+# for a numbers-heavy sports dashboard, not a generic app UI) and distinctive numerals, unlike
+# Inter (functional but the single most common UI font right now - see the dataviz skill's own
+# "avoid overused font families" guidance). Swapped 2026-09 at Brian's request.
+font = "Space Grotesk:https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
+headingFont = "Space Grotesk:https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&display=swap"
 codeFont = "'JetBrains Mono':https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
 baseFontSize = 15
 baseFontWeight = 400

@@ -305,22 +305,28 @@ POSITION_ACCENT = {"GKP": "#8B94A8", "DEF": "#3B82F6", "MID": "#A855F7", "FWD": 
 # Every tile below renders via st.components.v1.html, which mounts in its OWN sandboxed
 # iframe - it does NOT inherit the page's <link>/font-family from .streamlit/config.toml, so
 # without this every tile silently fell back to the browser's default sans-serif while the
-# surrounding Streamlit chrome (labels, dataframes, st.metric) correctly rendered in Inter.
-# Prepended to every returned HTML string below, not just declared once, because each
-# components.html call is a fully separate document.
+# surrounding Streamlit chrome (labels, dataframes, st.metric) correctly rendered in the app's
+# real font. Prepended to every returned HTML string below, not just declared once, because
+# each components.html call is a fully separate document.
+#
+# Space Grotesk, matching .streamlit/config.toml's font/headingFont - keep these two in sync;
+# this is the one place besides that file where the app's font is named. Picked over Inter
+# (the previous choice) for a more distinctive, stats-forward feel suited to a numbers-heavy
+# sports dashboard, per Brian's own call - Inter is functional but is the single most common
+# UI font around right now.
 #
 # The <link> loads as rel="preload" and only flips to rel="stylesheet" once it has actually
 # finished (the onload handler) - a PLAIN <link rel="stylesheet"> is render-blocking, so on a
 # slow connection, a captive network, or an ad/tracker blocker that holds up
 # fonts.googleapis.com, every tile would sit completely blank until that fetch resolved or
 # timed out. This way the tile paints immediately in the system font stack and upgrades to
-# Inter only if/when it loads - a real bug caught by testing this in a network-constrained
-# sandbox, not a hypothetical.
+# Space Grotesk only if/when it loads - a real bug caught by testing this in a
+# network-constrained sandbox, not a hypothetical.
 FONT_CSS = (
     '<link rel="preload" as="style" '
-    'href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" '
+    'href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" '
     'onload="this.onload=null;this.rel=\'stylesheet\'">'
-    "<style>*{font-family:'Inter',system-ui,-apple-system,sans-serif;box-sizing:border-box;margin:0;}</style>"
+    "<style>*{font-family:'Space Grotesk',system-ui,-apple-system,sans-serif;box-sizing:border-box;margin:0;}</style>"
 )
 
 
@@ -399,6 +405,20 @@ def render_action_tile_html(status: str, headline: str, subtext: str) -> str:
         <div style="font-size:clamp(13px,3.6vw,15px);font-weight:600;color:{TEXT_PRIMARY};line-height:1.3;">{headline}</div>
         <div style="font-size:clamp(11px,3.2vw,13px);color:{TEXT_MUTED};line-height:1.4;">{subtext}</div>
       </div>
+    </div>
+    """
+
+
+def render_info_banner_html(text: str) -> str:
+    """A neutral, card-styled note - context worth knowing (e.g. "early season, thin sample")
+    that isn't a recommendation and isn't good or bad, so it deliberately skips ActionTile's
+    accent-colored icon rather than forcing it into a good/attention framing that would
+    misrepresent it as either a success or a problem."""
+    return f"""
+    {FONT_CSS}
+    <div style="background:{CARD_BG};border:1px solid {CARD_BORDER};border-radius:16px;
+                padding:16px 18px;box-sizing:border-box;">
+      <div style="font-size:clamp(12px,3.2vw,14px);color:{TEXT_MUTED};line-height:1.5;">{text}</div>
     </div>
     """
 
@@ -637,17 +657,25 @@ rankings = load_player_rankings(season)
 predicted_gw = rankings["predicted_gw"].dropna().max() if not rankings.empty else None
 rankings = with_horizon(rankings, season)
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Season", season)
-col2.metric("Last ingested gameweek", last_gw if last_gw is not None else "—")
-col3.metric("Predictions for", f"GW{int(predicted_gw)}" if predicted_gw and pd.notna(predicted_gw) else "—")
+# Same tile system as everything below the tabs - this used to be plain st.metric boxes and
+# an st.info banner, Streamlit's own default styling, which visually clashed with every tile
+# on every tab beneath it (two different design languages on one page, not one).
+header_cols = st.columns(3)
+with header_cols[0]:
+    components.html(render_stat_tile_html("Season", season), height=96)
+with header_cols[1]:
+    components.html(render_stat_tile_html("Last ingested gameweek", str(last_gw) if last_gw is not None else "—"), height=96)
+with header_cols[2]:
+    components.html(render_stat_tile_html(
+        "Predictions for", f"GW{int(predicted_gw)}" if predicted_gw and pd.notna(predicted_gw) else "—",
+    ), height=96)
 
 if last_gw is not None and last_gw <= 2:
-    st.info(
+    components.html(render_info_banner_html(
         f"Early season ({last_gw} gameweek(s) ingested) — rolling form and fixture difficulty "
         "are still thin-sample and will sharpen as more gameweeks are ingested. This is "
         "expected behavior, not a bug."
-    )
+    ), height=150)
 
 tab_names = ["Players", "Fixtures", "Optimal Squad", "Model Lab"]
 if settings.ENTRY_ID:
