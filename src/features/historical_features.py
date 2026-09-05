@@ -603,7 +603,17 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     # xg_data_available-gated to 0.0 above/via own_xg_attack_form's has_xg gating in
     # _compute_team_form, so this is correctly 0 for pre-2022-23 seasons without any extra
     # gating needed here.
-    result["matchup_xg_x_opp_xga"] = result["xg_per90_roll5"] * result["opp_xg_defense_form"]
+    #
+    # opp_xg_defense_form only exists on the historical training path - _attach_fixture_features
+    # (called from _load_season, before engineer_features ever sees the frame) is what actually
+    # populates it. live_features.py's serving path was never updated to attach it, since
+    # matchup_xg_x_opp_xga isn't in FEATURE_COLS for the deployed model (this whole feature was a
+    # Phase 7.6 experiment that came back a null result). Default to 0.0 rather than KeyError-ing
+    # every live prediction run - matches the "not available yet" convention already used above.
+    if "opp_xg_defense_form" in result.columns:
+        result["matchup_xg_x_opp_xga"] = result["xg_per90_roll5"] * result["opp_xg_defense_form"]
+    else:
+        result["matchup_xg_x_opp_xga"] = 0.0
 
     prior_frames = []
     for season in result["season"].unique():
