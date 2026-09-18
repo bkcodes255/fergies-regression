@@ -196,8 +196,9 @@ async def send_approval_requests(
             InlineKeyboardButton(f"❌ Skip", callback_data=f"rej:{tag}"),
         ])
     lines.append(
-        "\n⚠️ Anything you don't respond to auto-submits at T-30m before the deadline "
-        "(your standing default) - tap Skip now if you don't want that."
+        "\n⚠️ Anything you don't respond to auto-submits within the last ~2h before "
+        "the deadline (your standing default, timing depends on when GitHub's scheduler actually "
+        "runs) - tap Skip now if you don't want that."
     )
 
     bot = _bot()

@@ -51,10 +51,23 @@ from src.recommendations.transfers import compute_free_transfers, suggest_transf
 APPROVAL_TIER = "T-3h"
 
 # (tier name, hours before deadline the window opens). Checked in order; a tier fires once
-# `now` has crossed into its window and no reminder_log row exists yet for it. Not confirmed
-# in fine detail with Brian - defaults from the original autopilot plan discussion, adjust here
-# if he wants different offsets.
-TIERS = [("T-24h", 24.0), ("T-3h", 3.0), ("T-30m", 0.5)]
+# `now` has crossed into its window and no reminder_log row exists yet for it.
+#
+# Widened 2026-09-19 after GW5's T-3h/T-30m both silently never fired - root-caused via
+# reminder_log (only T-24h logged) + gh run history: this workflow's `schedule: */15 * * * *`
+# is NOT actually honored every 15 min - GitHub Actions' scheduler is documented best-effort and
+# gets delayed under load. Observed real gaps between runs that day: 2.2h-5.0h, not 15 min. The
+# old 3h/0.5h windows were narrower than that observed gap, so a run landing just before the
+# window opened and the next landing just after it closed (or after the deadline entirely)
+# skipped the tier outright - exactly what happened. These widened windows are sized with
+# margin above that observed worst case (~5h), not just doubled arbitrarily, given GitHub's
+# scheduling won't get more reliable on its own. Real cost, not free: "T-30m" auto-submit
+# (auto_submit_expired, called below) can now legitimately fire anywhere from 30 min up to ~2h
+# before deadline, not precisely at 30 min - Brian accepted this tradeoff over the alternative
+# (an external cron pinger hitting workflow_dispatch, more precise but adds third-party infra
+# holding a GitHub token). If GitHub's own delays ever exceed these margins again, that's a
+# structural GH Actions reliability limit, not a bug to keep patching by widening further.
+TIERS = [("T-24h", 24.0), ("T-3h", 6.0), ("T-30m", 2.0)]
 
 
 def get_connection():
