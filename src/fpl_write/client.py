@@ -137,6 +137,15 @@ def get_my_team(session: requests.Session, entry_id: int) -> dict:
         response = session.get(url, timeout=TIMEOUT_SECONDS)
     except requests.RequestException as exc:
         raise FPLLoginError(f"/api/my-team/ request failed: {exc}") from exc
+    if response.status_code == 503:
+        # FPL's own maintenance-window response ("The game is being updated.") - happens
+        # routinely (deadlines, live gameweeks), unrelated to auth. Confirmed 2026-09-19:
+        # the old blanket "needs real account-scoped auth" message on this branch was actively
+        # misleading here - this is FPL being temporarily unavailable, not a credential problem.
+        raise FPLLoginError(
+            f"/api/my-team/{entry_id}/ returned HTTP 503 - FPL itself is temporarily down for "
+            "maintenance (not an auth problem). Retry in a few minutes; body: " + response.text[:300]
+        )
     if response.status_code != 200:
         raise FPLLoginError(
             f"/api/my-team/{entry_id}/ returned HTTP {response.status_code} - this endpoint "
