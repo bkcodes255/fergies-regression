@@ -29,6 +29,7 @@ from config import settings
 LOGIN_URL = "https://users.premierleague.com/accounts/login/"
 ME_URL = "https://fantasy.premierleague.com/api/me/"
 MY_TEAM_URL = "https://fantasy.premierleague.com/api/my-team/{entry_id}/"
+TRANSFERS_URL = "https://fantasy.premierleague.com/api/transfers/"
 USER_AGENT = "Mozilla/5.0 (fergies-regression fpl_write login test; personal account automation)"
 TIMEOUT_SECONDS = 15
 
@@ -184,6 +185,99 @@ def set_captain(
     ]
     url = MY_TEAM_URL.format(entry_id=entry_id)
     return session.post(url, json={"picks": picks_payload}, timeout=TIMEOUT_SECONDS)
+
+
+def set_lineup(
+    session: requests.Session, entry_id: int, my_team: dict,
+    starting_elements: list[int], bench_elements: list[int],
+) -> requests.Response:
+    """POSTs the same /api/my-team/{id}/ endpoint as save_my_team_noop/set_captain (the endpoint
+    already proven safe to write to repeatedly - this is a NEW use of it, not a new endpoint),
+    reassigning `position` (1-11 = starting XI in the given order, 12-15 = bench in the given
+    order - caller decides bench order, e.g. bench GK last) and `multiplier` (0 = benched,
+    otherwise 1, or 2 for whichever element is currently flagged is_captain). Does NOT touch
+    is_captain/is_vice_captain - those are echoed back exactly as they currently are, so a
+    lineup-only approval can't accidentally change the captain (that's approval_bot's separate
+    'captain' kind). Raises ValueError if the current captain/vice-captain would end up benched -
+    that's a real conflict between two independently-approved plans, not something to silently
+    paper over with a guessed multiplier.
+
+    starting_elements + bench_elements together must be exactly the 15 elements already in
+    my_team["picks"] (no adds/removes - that's a transfer, submit_transfers' job).
+
+    UNVERIFIED shape: only the narrower captain-only reassignment
+    (element/position/multiplier/is_captain/is_vice_captain, position never changed) has been
+    tested live and confirmed working (2026-08-26, scripts/test_captain_swap.py). Actually
+    changing `position` is new. This endpoint has never shown the my-team-write danger the
+    transfers endpoint has (no resource gets consumed by a POST here), so - unlike
+    submit_transfers below - it's fine to verify with a real, small, reverted round-trip test
+    (e.g. swap two bench outfield players' bench order, confirm via GET, swap back) before
+    trusting it inside the unattended approval flow. Do that first if picking this up fresh.
+    """
+    current_captain = next(p["element"] for p in my_team["picks"] if p["is_captain"])
+    current_vice = next(p["element"] for p in my_team["picks"] if p["is_vice_captain"])
+    if current_captain not in starting_elements:
+        raise ValueError(
+            f"Current captain (element {current_captain}) is not in the proposed starting XI - "
+            "resolve the captain approval before applying this lineup, don't guess."
+        )
+    if current_vice not in starting_elements:
+        raise ValueError(
+            f"Current vice-captain (element {current_vice}) is not in the proposed starting XI - "
+            "resolve the captain approval before applying this lineup, don't guess."
+        )
+
+    position_by_element = {el: i + 1 for i, el in enumerate(starting_elements)}
+    position_by_element.update({el: i + 12 for i, el in enumerate(bench_elements)})
+    if set(position_by_element) != {p["element"] for p in my_team["picks"]}:
+        raise ValueError(
+            "starting_elements + bench_elements must be exactly the current 15 picks - "
+            "this function only reorders/benches, it never adds or removes a player."
+        )
+
+    picks_payload = [
+        {
+            "element": p["element"],
+            "position": position_by_element[p["element"]],
+            "multiplier": 0 if p["element"] in bench_elements else (2 if p["element"] == current_captain else 1),
+            "is_captain": p["is_captain"],
+            "is_vice_captain": p["is_vice_captain"],
+        }
+        for p in my_team["picks"]
+    ]
+    url = MY_TEAM_URL.format(entry_id=entry_id)
+    return session.post(url, json={"picks": picks_payload}, timeout=TIMEOUT_SECONDS)
+
+
+def submit_transfers(
+    session: requests.Session, entry_id: int, event_id: int, transfers: list[dict],
+) -> requests.Response:
+    """POSTs to /api/transfers/ with confirmed=true - a REAL, non-refundable submission.
+
+    HARD RULE (project memory, from the 2026-08-26 incident where confirmed:false still
+    executed a real transfer, and reverting it did NOT refund the free transfer it consumed):
+    never call this function outside a real, deliberate, user-approved submission. There is no
+    safe way to test it - `confirmed: false` is not a dry run in practice, and even a
+    confirmed:true call that nets back to the original squad still permanently consumes a free
+    transfer / can leave a real -4 hit. Never call this more than once per gameweek, and always
+    pass the FULL set of transfers for that gameweek in one call - the real FPL web UI batches
+    every edit in a session into one confirmed call representing the net change; calling this
+    multiple times with partial transfer sets is exactly the mistake that caused the incident.
+
+    transfers: list of {"element_in": int, "element_out": int, "purchase_price": int,
+    "selling_price": int} - prices in FPL's *10 integer format (e.g. 45 = £4.5m), sourced from
+    live now_cost values fetched as close to submission time as practical, not a stale plan
+    snapshot (prices can move between when a plan was proposed and when it's approved).
+    """
+    payload = {
+        "confirmed": True,
+        "entry": entry_id,
+        "event": event_id,
+        "transfers": transfers,
+        "wildcard": False,
+        "freehit": False,
+    }
+    return session.post(TRANSFERS_URL, json=payload, timeout=TIMEOUT_SECONDS)
 
 
 def run() -> None:

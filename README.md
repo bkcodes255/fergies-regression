@@ -410,6 +410,22 @@ up the 60 already-stale rows by nulling their now-incorrect `artifact_path` (sam
 Model Lab's experiment rows already use to opt out of `predict_live.get_best_model`'s
 selection) rather than deleting the historical record.
 
+## Operations
+
+**Kill switch.** `.github/workflows/deadline_reminders.yml` is what sends the T-3h Telegram
+approval buttons and auto-submits anything undecided at T-30m (see `src/notify/approval_bot.py`).
+To stop it from taking any further action - e.g. mid-incident, or before an extended absence -
+disable the workflow rather than pulling secrets or reverting code, since it's instantly
+reversible and doesn't touch anything already in flight:
+
+1. Go to `https://github.com/bkcodes255/fergies-regression/actions/workflows/deadline_reminders.yml`
+2. Click **⋯** (top right) → **Disable workflow**
+3. To resume: same page → **Enable workflow**
+
+Disabling this workflow only stops new reminders/approvals/auto-submits from firing - it does
+not touch `ingest_and_predict.yml` (data/prediction refresh keeps running), and it doesn't
+revert anything already submitted to FPL.
+
 ## Build phases
 
 1. **Foundation** — FPL API client, raw snapshots, Postgres schema, manual ingestion

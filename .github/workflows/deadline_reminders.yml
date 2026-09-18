@@ -21,10 +21,12 @@ jobs:
 
       # Deliberately not the full requirements.txt (matplotlib/sklearn/xgboost/streamlit/
       # statsmodels aren't needed here and would slow every 15-minute run down for nothing) -
-      # just what src/notify/deadline_scheduler.py and its src/recommendations imports
-      # actually touch.
+      # just what src/notify/deadline_scheduler.py, src/notify/approval_bot.py,
+      # src/fpl_write/client.py, and src/recommendations imports actually touch. `requests` is
+      # approval_bot's transitive dependency via client.py, now that the scheduler actually
+      # calls into the FPL write path instead of only reading the DB.
       - name: Install dependencies
-        run: pip install pandas psycopg2-binary sqlalchemy python-telegram-bot python-dotenv
+        run: pip install pandas psycopg2-binary sqlalchemy python-telegram-bot python-dotenv requests
 
       - name: Run deadline scheduler
         env:
@@ -33,4 +35,6 @@ jobs:
           FPL_ENTRY_ID: ${{ secrets.FPL_ENTRY_ID }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FPL_SESSION_COOKIE: ${{ secrets.FPL_SESSION_COOKIE }}
+          FPL_API_AUTHORIZATION: ${{ secrets.FPL_API_AUTHORIZATION }}
         run: python -m src.notify.deadline_scheduler

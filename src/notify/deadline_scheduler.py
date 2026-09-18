@@ -1,18 +1,23 @@
-"""Deadline reminder scheduler - the notifications-only piece of the semi-autopilot plan
-(src/fpl_write and this module are the two verified primitives; this is the first thing built
-on top of them). Meant to run on a schedule via GitHub Actions (see
-.github/workflows/deadline_reminders.yml), not on Brian's own machine, so reminders keep firing
-even when his PC is off. DATABASE_URL therefore points at Supabase in that context, not local
-Postgres - this module doesn't care which, it just uses config.settings like everything else.
+"""Deadline reminder scheduler, now wired to the approval workflow (src/notify/approval_bot.py)
+that actually submits moves - the semi-autopilot loop end to end. Meant to run on a schedule via
+GitHub Actions (see .github/workflows/deadline_reminders.yml), not on Brian's own machine, so
+reminders keep firing even when his PC is off. DATABASE_URL therefore points at Supabase in
+that context, not local Postgres - this module doesn't care which, it just uses
+config.settings like everything else.
 
-Does NOT submit any transfer/lineup/captain change - see the hard rule in project memory
-(src/fpl_write/client.py's docstring) about never firing a confirmed transfer outside a real,
-deliberate, user-approved submission. This only tells Brian what the engine currently
-recommends; he still acts on it himself (or a later negotiation-loop piece will, once the
-transfer write path is trusted - not yet).
+At APPROVAL_TIER (T-3h), sends 3 independent Approve/Reject button pairs (transfer plan,
+captain pick, starting XI/bench - approval_bot.send_approval_requests) alongside the plain
+text reminder. Anything still undecided by T-30m auto-executes (approval_bot.auto_submit_expired
+- Brian's explicit standing choice that a silent timeout should still act, not do nothing).
+Every actual FPL write still goes through src/fpl_write/client.py, whose docstrings carry the
+hard rule from the 2026-08-26 incident (never a partial/incremental confirmed transfers call -
+exactly one, only after approval) - this module and approval_bot.py exist to satisfy that rule
+programmatically, not to relax it.
 
-Idempotent via the reminder_log table (sql/reminder_log.sql): safe to run on any cron cadence
-finer than the gap between tiers, since each (season, event_id, tier) only ever fires once.
+Idempotent via the reminder_log table (sql/reminder_log.sql) for the plain reminders, and
+pending_approvals (sql/pending_approvals.sql, ON CONFLICT DO NOTHING + an atomic claim before
+executing) for the approval workflow - safe to run on any cron cadence finer than the gap
+between tiers.
 
 Run directly (needs DATABASE_URL/FPL_ENTRY_ID/FPL_SEASON/TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID -
 via .env locally, or real env vars in CI):
@@ -34,10 +39,16 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
 
 from config import settings
+from src.notify import approval_bot
 from src.ingestion.db import get_connection as _get_connection
 from src.notify.telegram_bot import send_message
 from src.recommendations.squad_optimizer import best_starting_xi
 from src.recommendations.transfers import compute_free_transfers, suggest_transfer_plan
+
+# The tier that gets interactive Approve/Reject buttons, not just a plain FYI (T-24h stays a
+# heads-up, T-30m stays the final reminder text - see run()/auto_submit_expired below for what
+# actually executes at T-30m if nothing was decided).
+APPROVAL_TIER = "T-3h"
 
 # (tier name, hours before deadline the window opens). Checked in order; a tier fires once
 # `now` has crossed into its window and no reminder_log row exists yet for it. Not confirmed
@@ -151,44 +162,73 @@ def load_squad(conn, season: str, entry_id: int) -> tuple[pd.DataFrame, pd.DataF
     return squad, manager_gw
 
 
-def build_message(conn, tier: str, gw: dict, hours_left: float) -> str:
-    lines = [f"⏰ {tier} - {gw['name']} deadline in ~{hours_left:.1f}h"]
-
+def compute_recommendation(conn, gw: dict) -> dict | None:
+    """Core recommendation computation, shared by build_message (plain text, every tier) and
+    the APPROVAL_TIER path (structured plans for approval_bot's buttons) - kept as one function
+    so the two never quietly drift apart on what "the current recommendation" actually is."""
     if not settings.ENTRY_ID:
-        lines.append("\n(No FPL_ENTRY_ID configured - deadline-only reminder.)")
-        return "\n".join(lines)
-
+        return None
     squad, manager_gw = load_squad(conn, gw["season"], settings.ENTRY_ID)
     if squad.empty:
-        lines.append("\n(No squad data ingested yet for this entry.)")
-        return "\n".join(lines)
+        return None
 
     rankings = load_rankings(conn, gw["season"])
     bank = (manager_gw.iloc[0]["bank"] / 10) if not manager_gw.empty else 0.0
     free_transfers = compute_free_transfers(manager_gw)
+    plan, _, _ = suggest_transfer_plan(squad, rankings, bank, free_transfers)
+    starting_xi, formation = best_starting_xi(squad)
+    bench = squad[~squad["player_code"].isin(starting_xi["player_code"])].sort_values(
+        "predicted_points", ascending=False
+    )
+    captain = starting_xi.sort_values("predicted_points", ascending=False).iloc[0]
+    vice = starting_xi.sort_values("predicted_points", ascending=False).iloc[1]
+    return {
+        "plan": plan, "free_transfers": free_transfers,
+        "starting_xi": starting_xi, "bench": bench, "formation": formation,
+        "captain": captain, "vice": vice,
+    }
 
-    plan, _, remaining_bank = suggest_transfer_plan(squad, rankings, bank, free_transfers)
+
+def build_message(tier: str, gw: dict, hours_left: float, rec: dict | None) -> str:
+    lines = [f"⏰ {tier} - {gw['name']} deadline in ~{hours_left:.1f}h"]
+
+    if rec is None:
+        lines.append(
+            "\n(No FPL_ENTRY_ID configured or no squad data ingested yet - deadline-only reminder.)"
+        )
+        return "\n".join(lines)
+
+    plan = rec["plan"]
     if plan.empty:
         lines.append("\nNo recommended transfers this week.")
     else:
-        lines.append(f"\nSuggested transfers ({free_transfers} free):")
+        lines.append(f"\nSuggested transfers ({rec['free_transfers']} free):")
         for _, row in plan.iterrows():
             hit_note = "" if row["free_transfer_used"] else f" (-{4} hit)"
             lines.append(f"  {row['sell']} → {row['buy']} (net {row['net']:+.1f}){hit_note}")
 
-    starting_xi, formation = best_starting_xi(squad)
-    captain = starting_xi.sort_values("predicted_points", ascending=False).iloc[0]
+    captain = rec["captain"]
+    formation = rec["formation"]
     lines.append(f"\nSuggested captain: {captain['web_name']} ({captain['predicted_points']:.1f} pred pts)")
     lines.append(f"Formation: {formation[0]}-{formation[1]}-{formation[2]}")
-    lines.append(
-        "\n⚠️ This is a recommendation only - nothing has been submitted to your FPL "
-        "team automatically."
-    )
+    if tier == APPROVAL_TIER:
+        lines.append(
+            "\n\U0001F447 A separate message with Approve/Reject buttons for each of these follows."
+        )
+    else:
+        lines.append(
+            "\n⚠️ This is a recommendation only - nothing has been submitted to your FPL "
+            "team automatically."
+        )
     return "\n".join(lines)
 
 
 def run() -> None:
     conn = get_connection()
+
+    print("Polling Telegram for approve/reject button presses since the last run...")
+    asyncio.run(approval_bot.poll_and_process(conn))
+
     gw = load_next_deadline(conn)
     if gw is None:
         print("No upcoming deadline found - nothing to do.")
@@ -198,17 +238,35 @@ def run() -> None:
     hours_left = (gw["deadline_time"] - now).total_seconds() / 3600
     print(f"Next deadline: {gw['name']} in {hours_left:.2f}h")
 
+    rec = compute_recommendation(conn, gw)
+
     for tier, window_hours in TIERS:
         if not (0 <= hours_left <= window_hours):
             continue
         if already_sent(conn, gw["season"], gw["event_id"], tier):
             print(f"{tier} already sent for {gw['name']} - skipping.")
             continue
-        message = build_message(conn, tier, gw, hours_left)
+        message = build_message(tier, gw, hours_left, rec)
         print(f"Sending {tier} reminder:\n{message}")
         asyncio.run(send_message(message))
         log_sent(conn, gw["season"], gw["event_id"], tier)
         print(f"{tier} reminder sent and logged.")
+
+        if tier == APPROVAL_TIER and rec is not None:
+            transfer_plan = approval_bot.build_transfer_plan(rec["plan"], rec["free_transfers"])
+            captain_plan = approval_bot.build_captain_plan(
+                rec["captain"]["player_code"], rec["captain"]["web_name"],
+                rec["vice"]["player_code"], rec["vice"]["web_name"],
+            )
+            squad_plan = approval_bot.build_squad_plan(rec["starting_xi"], rec["bench"], rec["formation"])
+            print(f"Sending {APPROVAL_TIER} approval request (transfer/captain/squad buttons)...")
+            asyncio.run(approval_bot.send_approval_requests(
+                conn, gw["season"], gw["event_id"], gw["name"], transfer_plan, captain_plan, squad_plan,
+            ))
+
+        if tier == "T-30m":
+            print("T-30m reached - auto-submitting any of transfer/captain/squad still un-decided...")
+            approval_bot.auto_submit_expired(conn, gw["season"], gw["event_id"])
 
 
 if __name__ == "__main__":
