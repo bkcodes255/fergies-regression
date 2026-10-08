@@ -26,7 +26,7 @@ jobs:
       # approval_bot's transitive dependency via client.py, now that the scheduler actually
       # calls into the FPL write path instead of only reading the DB.
       - name: Install dependencies
-        run: pip install pandas psycopg2-binary sqlalchemy python-telegram-bot python-dotenv requests
+        run: pip install pandas psycopg2-binary "psycopg[binary]>=3.1" sqlalchemy python-telegram-bot python-dotenv requests
 
       - name: Run deadline scheduler
         env:

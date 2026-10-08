@@ -29,7 +29,7 @@ jobs:
       # even though predict_live.py doesn't import them directly - joblib.load needs the model
       # classes' defining modules importable to unpickle the saved artifacts.
       - name: Install dependencies
-        run: pip install requests psycopg2-binary sqlalchemy python-dotenv pandas numpy scikit-learn xgboost joblib
+        run: pip install requests psycopg2-binary "psycopg[binary]>=3.1" sqlalchemy python-dotenv pandas numpy scikit-learn xgboost joblib
 
       - name: Pull bootstrap/fixtures/live gameweek stats
         env:
