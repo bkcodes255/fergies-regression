@@ -1141,7 +1141,7 @@ with tab_fixtures:
 with tab_optimal:
     st.subheader("Optimal squad from scratch")
     st.caption(
-        "A real integer program (PuLP/CBC), not a heuristic: picks the 15-player squad "
+        "A real integer program (PuLP/HiGHS), not a heuristic: picks the 15-player squad "
         "(exactly 2 GKP / 5 DEF / 5 MID / 3 FWD, max 3 per real team) that maximizes what its "
         "*starting XI* can actually score — squad and starting-XI selection are solved "
         "together, with the captain's double points included in the objective. Budget is a "

@@ -1,5 +1,5 @@
 """Full squad-rebuild optimizer: "what is the optimal 15 I could build from the entire player
-pool, given a budget?" - a real integer program (PuLP/CBC), not a heuristic, unlike
+pool, given a budget?" - a real integer program (PuLP/HiGHS), not a heuristic, unlike
 squad_optimizer.py (which only reorders an *existing* 15) or transfers.py's greedy planner
 (which only searches one transfer at a time from the current squad).
 
@@ -38,9 +38,9 @@ def build_optimal_squad(rankings: pd.DataFrame, budget: float, solver_time_limit
     idx = pool.index.tolist()
 
     prob = pulp.LpProblem("fpl_squad_optimizer", pulp.LpMaximize)
-    squad = pulp.LpVariable.dicts("squad", idx, cat="Binary")
-    start = pulp.LpVariable.dicts("start", idx, cat="Binary")
-    captain = pulp.LpVariable.dicts("captain", idx, cat="Binary")
+    squad = prob.add_variable_dicts("squad", idx, cat="Binary")
+    start = prob.add_variable_dicts("start", idx, cat="Binary")
+    captain = prob.add_variable_dicts("captain", idx, cat="Binary")
 
     points = pool[value_col].to_dict()
     prob += pulp.lpSum(points[i] * start[i] for i in idx) + pulp.lpSum(points[i] * captain[i] for i in idx)
@@ -70,9 +70,14 @@ def build_optimal_squad(rankings: pd.DataFrame, budget: float, solver_time_limit
         prob += pulp.lpSum(start[i] for i in pos_idx) >= lo
         prob += pulp.lpSum(start[i] for i in pos_idx) <= hi
 
-    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=solver_time_limit))
+    # PuLP 4 no longer bundles CBC - HiGHS comes from the highspy package. A time-limited solve
+    # that still found a solution is kept, matching how CBC reported it as "Optimal" under PuLP 3.
+    stats = prob.solve(pulp.HiGHS(msg=False, timeLimit=solver_time_limit))
 
-    if pulp.LpStatus[prob.status] != "Optimal":
+    usable = stats.status == pulp.LpSolveStatus.Optimal or (
+        stats.status == pulp.LpSolveStatus.TimeLimit and stats.has_solution
+    )
+    if not usable:
         return None, None, None, None
 
     squad_idx = [i for i in idx if squad[i].value() == 1]

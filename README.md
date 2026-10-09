@@ -119,7 +119,7 @@ Run the dashboard: `streamlit run dashboard/app.py`
 - [x] Captain check (built in Phase 3, still here) — flags when the model's top predicted
       scorer in your XI differs from your actual captain
 - [x] Full squad-rebuild optimizer (`src/recommendations/squad_builder.py`) — a real integer
-      program (PuLP/CBC), not a heuristic: picks the 15-player squad (exactly 2 GKP/5 DEF/5
+      program (PuLP/HiGHS), not a heuristic: picks the 15-player squad (exactly 2 GKP/5 DEF/5
       MID/3 FWD, max 3 per team, within budget) that maximizes what its *starting XI* can
       actually score. Squad and starting-XI selection are solved together in one MILP —
       captain doubling is in the objective too — rather than picking 15 players and hoping a
