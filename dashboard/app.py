@@ -16,7 +16,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 from config import settings
 from src.features.historical_features import FEATURE_COLS as ALL_HISTORICAL_FEATURE_COLS
@@ -34,7 +33,7 @@ st.set_page_config(page_title="Fergie's Regression", layout="wide")
 
 # Streamlit's native tab bar doesn't wrap - on a narrow screen it just scrolls horizontally,
 # so the last tab ("Model Lab") is permanently hidden behind a cut-off "M›" until the user
-# discovers they can swipe. This is real page CSS (not a components.html iframe), so it can
+# discovers they can swipe. This is real page CSS (not an st.iframe tile), so it can
 # actually reach Streamlit's own tab-list DOM; letting it wrap to a second line is the simplest
 # fix that doesn't require shortening tab names or hand-rolling a tab bar.
 st.markdown(
@@ -302,12 +301,12 @@ STATUS_GOOD = "#22C55E"
 STATUS_WARNING = "#F59E0B"
 POSITION_ACCENT = {"GKP": "#8B94A8", "DEF": "#3B82F6", "MID": "#A855F7", "FWD": "#06B6D4"}
 
-# Every tile below renders via st.components.v1.html, which mounts in its OWN sandboxed
+# Every tile below renders via st.iframe, which mounts in its OWN
 # iframe - it does NOT inherit the page's <link>/font-family from .streamlit/config.toml, so
 # without this every tile silently fell back to the browser's default sans-serif while the
 # surrounding Streamlit chrome (labels, dataframes, st.metric) correctly rendered in the app's
 # real font. Prepended to every returned HTML string below, not just declared once, because
-# each components.html call is a fully separate document.
+# each st.iframe call is a fully separate document.
 #
 # Space Grotesk, matching .streamlit/config.toml's font/headingFont - keep these two in sync;
 # this is the one place besides that file where the app's font is named. Picked over Inter
@@ -423,7 +422,7 @@ def render_info_banner_html(text: str) -> str:
     """
 
 
-# Team crests: components.html's iframe has no access to Streamlit's own static-file serving,
+# Team crests: the tile iframes don't use Streamlit's static-file serving (not enabled here),
 # so a local image only works embedded as a base64 data URI. Drop files in here as
 # assets/badges/<TEAM_SHORT_NAME>.png (e.g. assets/badges/LIV.png, matching the `team` column's
 # short_name values) - _crest_data_uri() picks them up automatically, no code change needed.
@@ -662,16 +661,16 @@ rankings = with_horizon(rankings, season)
 # on every tab beneath it (two different design languages on one page, not one).
 header_cols = st.columns(3)
 with header_cols[0]:
-    components.html(render_stat_tile_html("Season", season), height=96)
+    st.iframe(render_stat_tile_html("Season", season), height=96)
 with header_cols[1]:
-    components.html(render_stat_tile_html("Last ingested gameweek", str(last_gw) if last_gw is not None else "—"), height=96)
+    st.iframe(render_stat_tile_html("Last ingested gameweek", str(last_gw) if last_gw is not None else "—"), height=96)
 with header_cols[2]:
-    components.html(render_stat_tile_html(
+    st.iframe(render_stat_tile_html(
         "Predictions for", f"GW{int(predicted_gw)}" if predicted_gw and pd.notna(predicted_gw) else "—",
     ), height=96)
 
 if last_gw is not None and last_gw <= 2:
-    components.html(render_info_banner_html(
+    st.iframe(render_info_banner_html(
         f"Early season ({last_gw} gameweek(s) ingested) — rolling form and fixture difficulty "
         "are still thin-sample and will sharpen as more gameweeks are ingested. This is "
         "expected behavior, not a bug."
@@ -717,17 +716,17 @@ if settings.ENTRY_ID:
             free_transfers = compute_free_transfers(manager_gw)
             bank = float(gw_row["bank"]) / 10 if gw_row is not None else 0.0
             with header_cols[1]:
-                components.html(render_stat_tile_html("Free transfers", str(free_transfers)), height=96)
+                st.iframe(render_stat_tile_html("Free transfers", str(free_transfers)), height=96)
             with header_cols[2]:
-                components.html(render_stat_tile_html("Bank", f"£{bank:.1f}m"), height=96)
+                st.iframe(render_stat_tile_html("Bank", f"£{bank:.1f}m"), height=96)
 
             cap = captain_recommendation(starting)
             changes = lineup_changes(squad)
 
             st.markdown("#### Your team")
-            components.html(render_pitch_html(starting, changes["bench_out_codes"]), height=500)
+            st.iframe(render_pitch_html(starting, changes["bench_out_codes"]), height=500)
             if not bench.empty:
-                components.html(render_bench_html(bench, changes["bring_in_codes"]), height=120)
+                st.iframe(render_bench_html(bench, changes["bring_in_codes"]), height=120)
 
             action_cols = st.columns(2)
             with action_cols[0]:
@@ -745,7 +744,7 @@ if settings.ENTRY_ID:
                         f"{cap['recommended_points']:.1f} predicted vs. {cap['current_points']:.1f} for "
                         f"{cap['current_name']}, currently armbanded.",
                     )
-                components.html(tile, height=110)
+                st.iframe(tile, height=110)
             with action_cols[1]:
                 if not changes["bring_in_codes"] and not changes["bench_out_codes"]:
                     tile = render_action_tile_html(
@@ -757,13 +756,13 @@ if settings.ENTRY_ID:
                         "attention", f"+{gain:.1f} pts available in your lineup",
                         "See the highlighted swap on the pitch above.",
                     )
-                components.html(tile, height=110)
+                st.iframe(tile, height=110)
 
             st.divider()
             st.markdown("#### Recommended transfer")
             plan, _, remaining_bank = suggest_transfer_plan(squad, rankings, bank, free_transfers)
             if plan.empty:
-                components.html(
+                st.iframe(
                     render_action_tile_html("good", "No transfer recommended", "Your squad already looks efficient."),
                     height=110,
                 )
@@ -771,8 +770,8 @@ if settings.ENTRY_ID:
                 top = plan.iloc[0]
                 sell_row = squad[squad["web_name"] == top["sell"]].iloc[0]
                 buy_row = rankings[rankings["web_name"] == top["buy"]].iloc[0]
-                components.html(render_transfer_card_html(sell_row, buy_row), height=140)
-                components.html(
+                st.iframe(render_transfer_card_html(sell_row, buy_row), height=140)
+                st.iframe(
                     render_stat_tile_html("Net gain, after any hit", f"{top['net']:+.1f} pts", accent=STATUS_GOOD),
                     height=96,
                 )
@@ -800,7 +799,7 @@ if settings.ENTRY_ID:
                             "transfer_num": "#", "sell": "Sell", "buy": "Buy", "gain": "Predicted gain",
                             "hit": "Hit cost", "net": "Net gain", "free_transfer_used": "Free transfer",
                         }),
-                        use_container_width=True, hide_index=True,
+                        width="stretch", hide_index=True,
                     )
                     st.caption(f"Bank after this plan: £{plan_remaining_bank:.1f}m")
 
@@ -820,7 +819,7 @@ if settings.ENTRY_ID:
                 ("P(80+ pts)", f"{sim_stats['p_beat_80']:.0%}", TEXT_PRIMARY),
             ]):
                 with col:
-                    components.html(render_stat_tile_html(label, value, accent=accent), height=118)
+                    st.iframe(render_stat_tile_html(label, value, accent=accent), height=118)
 
             fig, ax = plt.subplots(figsize=(8, 3))
             fig.patch.set_facecolor(BG)
@@ -853,20 +852,20 @@ if settings.ENTRY_ID:
 
             stat_cols = st.columns(4)
             with stat_cols[0]:
-                components.html(render_stat_tile_html(
+                st.iframe(render_stat_tile_html(
                     "Total points", str(int(latest["total_points"])),
                     sublabel=f"GW average {manager_gw['points'].mean():.1f}",
                 ), height=118)
             with stat_cols[1]:
                 rank_str = f"{int(latest['overall_rank']):,}" if pd.notna(latest["overall_rank"]) else "—"
-                components.html(render_stat_tile_html("Overall rank", rank_str), height=118)
+                st.iframe(render_stat_tile_html("Overall rank", rank_str), height=118)
             with stat_cols[2]:
-                components.html(render_stat_tile_html(
+                st.iframe(render_stat_tile_html(
                     "Best gameweek", str(int(best_gw["points"])), sublabel=f"GW{int(best_gw['event_id'])}",
                     accent=STATUS_GOOD,
                 ), height=118)
             with stat_cols[3]:
-                components.html(render_stat_tile_html(
+                st.iframe(render_stat_tile_html(
                     "Points left on bench", str(int(manager_gw["points_on_bench"].sum())),
                     sublabel=f"Across {len(manager_gw)} gameweek(s)", accent=STATUS_WARNING,
                 ), height=118)
@@ -902,7 +901,7 @@ if settings.ENTRY_ID:
                 insight_cols = st.columns(2)
                 if valid.empty:
                     with insight_cols[0]:
-                        components.html(render_action_tile_html(
+                        st.iframe(render_action_tile_html(
                             "good", "Not enough gameweeks yet",
                             "Model-accuracy comparisons need at least one gameweek with a pre-deadline prediction.",
                         ), height=110)
@@ -911,7 +910,7 @@ if settings.ENTRY_ID:
                     epl_err = (valid["actual_points"] - valid["epl_predicted_points"]).abs()
                     beats = int((model_err < epl_err).sum())
                     with insight_cols[0]:
-                        components.html(render_action_tile_html(
+                        st.iframe(render_action_tile_html(
                             "good" if model_err.mean() < epl_err.mean() else "attention",
                             f"Beating FPL's own projection {beats} of {len(valid)} weeks",
                             f"Mean error {model_err.mean():.1f} pts/GW vs. their {epl_err.mean():.1f}.",
@@ -919,7 +918,7 @@ if settings.ENTRY_ID:
                     with insight_cols[1]:
                         miss = valid.loc[(valid["actual_points"] - valid["model_predicted_points"]).idxmax()]
                         miss_gap = miss["actual_points"] - miss["model_predicted_points"]
-                        components.html(render_action_tile_html(
+                        st.iframe(render_action_tile_html(
                             "attention", f"{miss['gw_name']}: biggest miss this season",
                             f"Predicted {miss['model_predicted_points']:.0f}, actual {miss['actual_points']:.0f} "
                             f"({miss_gap:+.0f}) — the model hedges toward the mean by design.",
@@ -945,7 +944,7 @@ if settings.ENTRY_ID:
                             "epl_predicted_points": "FPL Prediction", "actual_points": "Points Scored",
                             "gw_average": "Gameweek Average", "gw_highest": "Gameweek Highest",
                         }),
-                        use_container_width=True, hide_index=True,
+                        width="stretch", hide_index=True,
                     )
 
 with tab_players:
@@ -999,7 +998,7 @@ with tab_players:
             )
             for _, r in top_rows.iterrows()
         )
-        components.html(
+        st.iframe(
             f'<div style="display:flex;flex-direction:column;gap:10px;">{rows_html}</div>',
             height=72 * len(top_rows) + 10 * (len(top_rows) - 1) + 20,
         )
@@ -1027,7 +1026,7 @@ with tab_players:
                 "range": "Floor–Ceiling", "p_haul_10plus": "Ceiling %", "predicted_value": "Predicted pts/£m",
                 "total_points": "Total pts", "selected_by_percent": "Owned %", "status": "Status",
             }),
-            use_container_width=True, height=500,
+            width="stretch", height=500,
         )
 
 with tab_fixtures:
@@ -1112,18 +1111,18 @@ with tab_fixtures:
             return styles
 
         styled = grid_df[display_cols].style.apply(_style_row, axis=1, subset=display_cols)
-        st.dataframe(styled, use_container_width=True, hide_index=True, height=(len(grid_df) + 1) * 38)
+        st.dataframe(styled, width="stretch", hide_index=True, height=(len(grid_df) + 1) * 38)
 
         best_team = grid_df.iloc[0]
         worst_team = grid_df.iloc[-1]
         insight_cols = st.columns(2)
         with insight_cols[0]:
-            components.html(render_action_tile_html(
+            st.iframe(render_action_tile_html(
                 "good", f"{best_team['Team']}: best run in the window",
                 f"Lowest average fixture difficulty over the next {DEFAULT_HORIZON} gameweeks.",
             ), height=110)
         with insight_cols[1]:
-            components.html(render_action_tile_html(
+            st.iframe(render_action_tile_html(
                 "attention", f"{worst_team['Team']}: hardest run in the window",
                 f"Highest average fixture difficulty over the next {DEFAULT_HORIZON} gameweeks.",
             ), height=110)
@@ -1172,12 +1171,12 @@ with tab_optimal:
 
         stat_cols = st.columns(3 if settings.ENTRY_ID else 2)
         with stat_cols[0]:
-            components.html(render_stat_tile_html(
+            st.iframe(render_stat_tile_html(
                 "Projected XI points", f"{opt_objective:.1f}", sublabel="Captain doubled", accent=STATUS_GOOD,
             ), height=124)
         with stat_cols[1]:
             spend = opt_squad["price"].sum()
-            components.html(render_stat_tile_html(
+            st.iframe(render_stat_tile_html(
                 "Spend", f"£{spend:.1f}m", sublabel=f"£{budget - spend:.1f}m unspent",
             ), height=124)
 
@@ -1191,20 +1190,20 @@ with tab_optimal:
                 actual_xi, _ = best_starting_xi(actual_squad, value_col=opt_value_col)
                 actual_total = actual_xi[opt_value_col].sum()
                 with stat_cols[2]:
-                    components.html(render_stat_tile_html(
+                    st.iframe(render_stat_tile_html(
                         "Your squad, same basis", f"{actual_total:.1f}",
                         sublabel=f"{opt_objective - actual_total:+.1f} vs. this squad", accent=STATUS_WARNING,
                     ), height=124)
 
         st.markdown("#### The solver's XI")
-        components.html(render_pitch_html(opt_starting, set(), value_col=opt_value_col), height=500)
+        st.iframe(render_pitch_html(opt_starting, set(), value_col=opt_value_col), height=500)
         if not opt_bench.empty:
-            components.html(render_bench_html(opt_bench, set(), value_col=opt_value_col), height=120)
+            st.iframe(render_bench_html(opt_bench, set(), value_col=opt_value_col), height=120)
 
         if settings.ENTRY_ID and not actual_squad.empty:
             overlap = set(opt_squad["player_code"]) & set(actual_squad["player_code"])
             transfers_needed = 15 - len(overlap)
-            components.html(render_action_tile_html(
+            st.iframe(render_action_tile_html(
                 "good" if transfers_needed == 0 else "attention",
                 f"{len(overlap)} of your 15 already match this squad",
                 "Your squad already matches." if transfers_needed == 0 else
@@ -1352,7 +1351,7 @@ with tab_model_lab:
                     round(p_values_by_model[model_type], 4) if model_type in p_values_by_model else None
                 ),
             })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
         st.caption(
             "Δ and p-value are both vs. a fixed 'all features' reference run computed once per "
             "session — not an older ledger row. Fit flags are rules of thumb (overfit gap > "
@@ -1378,7 +1377,7 @@ with tab_model_lab:
                 ols_df = pd.DataFrame([
                     {"feature": name, **vals} for name, vals in ols["coefficients"].items() if name != "const"
                 ]).sort_values("p_value")
-                st.dataframe(ols_df, use_container_width=True, hide_index=True, height=300)
+                st.dataframe(ols_df, width="stretch", hide_index=True, height=300)
             for model_type in ("random_forest", "xgboost"):
                 perm = results[model_type]["extended"]
                 if perm:
@@ -1386,7 +1385,7 @@ with tab_model_lab:
                     perm_df = pd.DataFrame([
                         {"feature": name, **vals} for name, vals in perm.items()
                     ]).sort_values("importance_mean", ascending=False)
-                    st.dataframe(perm_df, use_container_width=True, hide_index=True, height=300)
+                    st.dataframe(perm_df, width="stretch", hide_index=True, height=300)
 
     st.markdown("**Experiment ledger**")
     ledger = pd.read_sql_query(
@@ -1408,7 +1407,7 @@ with tab_model_lab:
         )
         st.dataframe(
             ledger[["trained_at", "model_type", "feature_count", "r2", "mae", "rmse", "overfit_gap"]],
-            use_container_width=True, hide_index=True, height=400,
+            width="stretch", hide_index=True, height=400,
         )
         st.caption(
             "Every past Model Lab run, this session or an earlier one — queryable directly via "

@@ -8,8 +8,8 @@ Supported extensions: `.png`, `.svg`, `.jpg`, `.jpeg`, `.webp`.
 A team with no file here just keeps the current colored badge (no broken-image icon).
 
 Keep each file small (a few KB) — they're base64-embedded directly into every rendered tile,
-not served as static files, since `components.html`'s sandboxed iframes can't reach Streamlit's
-own static-file serving.
+not served as static files, since the dashboard's `st.iframe` tiles don't use Streamlit's
+static-file serving (not enabled for this app).
 
 Real club crests are trademarked assets — make sure you have the right to use whatever you put
 here before committing it.
