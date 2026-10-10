@@ -6,11 +6,25 @@ name: Ingest data and refresh predictions
 # downstream: dashboard, deadline reminders) stuck on GW1 data for a week. This closes that gap.
 #
 # Every run is idempotent (upserts keyed on season/event_id/player_code etc.), so overlapping or
-# frequent runs are safe. Fixtures happen Fri-Mon; every 3 hours keeps data fresh without
-# hammering FPL's free public API.
+# frequent runs are safe - this is what lets the two schedules below safely overlap rather than
+# needing to be mutually exclusive.
+#
+# Two-tier cadence instead of one flat interval, since bonus points/provisional live stats only
+# actually move while a match is being played: PL fixtures run Friday evening through Monday
+# night (UTC) - every 15 minutes in that window (matching deadline_reminders.yml's own cadence)
+# keeps live gameweeks fresh without the lag that a flat interval would need to also cover
+# off-peak hours. Every 3 hours the rest of the week, when nothing's actually changing, so
+# FPL's free public API isn't hit for no reason. Day-of-week ranges can't cross a week boundary
+# in one cron expression, so the matchday window is spelled out as four lines (cron fields are
+# UTC-only; GitHub Actions doesn't support a CRON_TZ-style timezone prefix here):
+#   Fri 18:00-23:59, all Saturday, all Sunday, Mon 00:00-21:59.
 on:
   schedule:
     - cron: "0 */3 * * *"
+    - cron: "*/15 18-23 * * 5"
+    - cron: "*/15 * * * 6"
+    - cron: "*/15 * * * 0"
+    - cron: "*/15 0-21 * * 1"
   workflow_dispatch: {}
 
 jobs:
