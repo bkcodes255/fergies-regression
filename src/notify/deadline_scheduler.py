@@ -315,7 +315,7 @@ def run() -> None:
 
         if tier == "T-30m":
             print("T-30m reached - auto-submitting any of transfer/captain/squad still un-decided...")
-            approval_bot.auto_submit_expired(conn, gw["season"], gw["event_id"])
+            asyncio.run(approval_bot.auto_submit_expired(conn, gw["season"], gw["event_id"]))
 
 
 if __name__ == "__main__":

@@ -402,23 +402,41 @@ async def _process_callback_query(conn, bot: Bot, cq) -> None:
     await _reply(cq.from_user.id, f"{prefix} {_KIND_LABEL[kind]}{variant_label}: {detail}")
 
 
-def auto_submit_expired(conn, season: str, event_id: int) -> None:
+async def auto_submit_expired(conn, season: str, event_id: int) -> None:
     """Called from deadline_scheduler's T-30m tier: anything still 'proposed' for this
     gameweek gets executed now, per Brian's explicit standing choice that a silent timeout
-    should still act rather than do nothing."""
+    should still act rather than do nothing.
+
+    async (one event loop for the whole call, not a separate asyncio.run() per kind) -
+    python-telegram-bot's Bot lazily binds its HTTP client to whichever event loop first uses
+    it, so reusing the same Bot object across several asyncio.run() calls (each of which tears
+    its own loop down afterwards) breaks on the second call with "RuntimeError: Event loop is
+    closed". Confirmed happening in production for a real gameweek: the old version processed
+    transfer and captain (both failed, for an unrelated reason - a malformed cookie secret),
+    then crashed sending captain's failure notification - squad/lineup was never even attempted,
+    with no way to retry since this only runs once per gameweek (the T-30m tier is marked sent
+    regardless of what happens inside here). Caller now wraps this in a single asyncio.run().
+
+    Each kind is also isolated in its own try/except, same principle as poll_and_process's
+    per-update isolation - one kind's execution or notification failure must never stop the
+    remaining kinds (particularly squad/lineup, the one that got silently skipped) from being
+    attempted."""
     bot = _bot()
     for kind in KINDS:
-        plan = _claim(conn, season, event_id, kind)
-        if plan is None:
-            continue
-        exec_plan, variant_label = _resolve_transfer_variant(kind, "auto", plan)
-        ok, detail = execute_kind(conn, season, event_id, kind, exec_plan)
-        _finish(conn, season, event_id, kind, "executed" if ok else "failed", detail)
-        prefix = "✅" if ok else "⚠️"
-        asyncio.run(bot.send_message(
-            chat_id=settings.TELEGRAM_CHAT_ID,
-            text=f"{prefix} (auto, no response received) {_KIND_LABEL[kind]}{variant_label}: {detail}",
-        ))
+        try:
+            plan = _claim(conn, season, event_id, kind)
+            if plan is None:
+                continue
+            exec_plan, variant_label = _resolve_transfer_variant(kind, "auto", plan)
+            ok, detail = execute_kind(conn, season, event_id, kind, exec_plan)
+            _finish(conn, season, event_id, kind, "executed" if ok else "failed", detail)
+            prefix = "✅" if ok else "⚠️"
+            await bot.send_message(
+                chat_id=settings.TELEGRAM_CHAT_ID,
+                text=f"{prefix} (auto, no response received) {_KIND_LABEL[kind]}{variant_label}: {detail}",
+            )
+        except Exception as exc:  # noqa: BLE001 - one kind's failure must never block the rest
+            print(f"Error auto-submitting kind={kind!r} for event {event_id}, continuing to next kind: {exc!r}")
 
 
 if __name__ == "__main__":
