@@ -42,6 +42,7 @@ from config import settings
 from src.notify import approval_bot
 from src.ingestion.db import get_connection as _get_connection
 from src.notify.telegram_bot import send_message
+from src.recommendations.horizon import DEFAULT_HORIZON, compute_horizon_points, load_fixture_window
 from src.recommendations.squad_optimizer import best_starting_xi
 from src.recommendations.transfers import compute_free_transfers, suggest_transfer_plan
 
@@ -124,7 +125,7 @@ def load_rankings(conn, season: str) -> pd.DataFrame:
         SELECT
             st.player_code, p.web_name, pos.element_type, t.short_name AS team,
             st.now_cost, st.status,
-            pr.predicted_points
+            pr.predicted_points, pr.event_id AS predicted_gw
         FROM v_player_season_totals st
         JOIN players p ON p.player_code = st.player_code
         JOIN player_seasons pos ON pos.player_code = st.player_code AND pos.season = st.season
@@ -140,6 +141,24 @@ def load_rankings(conn, season: str) -> pd.DataFrame:
     df["price"] = df["now_cost"] / 10
     df["predicted_points"] = df["predicted_points"].fillna(0.0)
     return df
+
+
+def with_horizon(conn, rankings: pd.DataFrame, season: str) -> pd.DataFrame:
+    """Adds horizon_points/horizon_fixtures (src.recommendations.horizon) to rankings that
+    already has predicted_points + predicted_gw - same helper dashboard/app.py's own
+    with_horizon applies for the "Next 5 GWs" toggle there, kept in sync so the Telegram
+    approval flow's 5-GW option matches the dashboard's own 5-GW option exactly, not a
+    second, subtly different implementation. Falls back to a flat 1-gameweek horizon when
+    there's no next-GW prediction yet to anchor the window on (e.g. before the first
+    predict_live run) - matches dashboard/app.py's own fallback."""
+    predicted_gw = rankings["predicted_gw"].dropna().max() if not rankings.empty else None
+    if predicted_gw is None or pd.isna(predicted_gw):
+        result = rankings.copy()
+        result["horizon_points"] = result["predicted_points"]
+        result["horizon_fixtures"] = 1
+        return result
+    fixtures = load_fixture_window(conn, season, int(predicted_gw), DEFAULT_HORIZON)
+    return compute_horizon_points(rankings, fixtures, DEFAULT_HORIZON)
 
 
 def load_squad(conn, season: str, entry_id: int) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -178,7 +197,13 @@ def load_squad(conn, season: str, entry_id: int) -> tuple[pd.DataFrame, pd.DataF
 def compute_recommendation(conn, gw: dict) -> dict | None:
     """Core recommendation computation, shared by build_message (plain text, every tier) and
     the APPROVAL_TIER path (structured plans for approval_bot's buttons) - kept as one function
-    so the two never quietly drift apart on what "the current recommendation" actually is."""
+    so the two never quietly drift apart on what "the current recommendation" actually is.
+
+    Builds the transfer plan two ways - value_col="predicted_points" (next GW only) and
+    value_col="horizon_points" (fixture-weighted over the next DEFAULT_HORIZON gameweeks,
+    same horizon dashboard/app.py's own toggle uses) - so the Telegram approval message can
+    offer both and let the horizon choice be made at approval time (see
+    approval_bot.build_transfer_plan/send_approval_requests), not decided unilaterally here."""
     if not settings.ENTRY_ID:
         return None
     squad, manager_gw = load_squad(conn, gw["season"], settings.ENTRY_ID)
@@ -186,9 +211,17 @@ def compute_recommendation(conn, gw: dict) -> dict | None:
         return None
 
     rankings = load_rankings(conn, gw["season"])
+    rankings = with_horizon(conn, rankings, gw["season"])
+    # squad needs horizon_points too - suggest_transfer_plan compares current[value_col] against
+    # cand[value_col] for every squad player, and rankings is the only frame with horizon_points
+    # computed above. Same merge dashboard/app.py's "This Week" tab needs for the identical
+    # reason (a KeyError here previously broke every "Next 5 GWs" plan on the dashboard).
+    squad = squad.merge(rankings[["player_code", "horizon_points", "horizon_fixtures"]], on="player_code", how="left")
+
     bank = (manager_gw.iloc[0]["bank"] / 10) if not manager_gw.empty else 0.0
     free_transfers = compute_free_transfers(manager_gw)
-    plan, _, _ = suggest_transfer_plan(squad, rankings, bank, free_transfers)
+    plan_1gw, _, _ = suggest_transfer_plan(squad, rankings, bank, free_transfers, value_col="predicted_points")
+    plan_5gw, _, _ = suggest_transfer_plan(squad, rankings, bank, free_transfers, value_col="horizon_points")
     starting_xi, formation = best_starting_xi(squad)
     bench = squad[~squad["player_code"].isin(starting_xi["player_code"])].sort_values(
         "predicted_points", ascending=False
@@ -196,7 +229,10 @@ def compute_recommendation(conn, gw: dict) -> dict | None:
     captain = starting_xi.sort_values("predicted_points", ascending=False).iloc[0]
     vice = starting_xi.sort_values("predicted_points", ascending=False).iloc[1]
     return {
-        "plan": plan, "free_transfers": free_transfers,
+        # "plan" stays the next-GW-only plan - build_message's plain-text T-24h/T-30m reminders
+        # keep showing just that one, unchanged from before; plan_1gw/plan_5gw are the pair
+        # approval_bot needs for the two-button choice at APPROVAL_TIER.
+        "plan": plan_1gw, "plan_1gw": plan_1gw, "plan_5gw": plan_5gw, "free_transfers": free_transfers,
         "starting_xi": starting_xi, "bench": bench, "formation": formation,
         "captain": captain, "vice": vice,
     }
@@ -266,7 +302,7 @@ def run() -> None:
         print(f"{tier} reminder sent and logged.")
 
         if tier == APPROVAL_TIER and rec is not None:
-            transfer_plan = approval_bot.build_transfer_plan(rec["plan"], rec["free_transfers"])
+            transfer_plan = approval_bot.build_transfer_plan(rec["plan_1gw"], rec["plan_5gw"], rec["free_transfers"])
             captain_plan = approval_bot.build_captain_plan(
                 rec["captain"]["player_code"], rec["captain"]["web_name"],
                 rec["vice"]["player_code"], rec["vice"]["web_name"],

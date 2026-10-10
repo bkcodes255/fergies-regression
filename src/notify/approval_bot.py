@@ -41,12 +41,19 @@ def _bot() -> Bot:
 
 # --- plan building (snapshot for display + the record poll_and_process/auto_submit_expired act on) ---
 
-def build_transfer_plan(plan_df: pd.DataFrame, free_transfers: int) -> dict:
-    return {
-        "transfers": [
+def build_transfer_plan(plan_1gw_df: pd.DataFrame, plan_5gw_df: pd.DataFrame, free_transfers: int) -> dict:
+    """Nests BOTH candidate plans (next-GW-only and 5-GW fixture-weighted horizon) under one
+    pending_approvals row, instead of picking one up front - the horizon choice is made at
+    approval time, by which button gets tapped (see _resolve_transfer_variant), so both stay
+    visible side by side right up until one is actually approved."""
+    def _rows(df: pd.DataFrame) -> list[dict]:
+        return [
             {"sell": row["sell"], "buy": row["buy"], "net": row["net"], "hit": row["hit"]}
-            for _, row in plan_df.iterrows()
-        ],
+            for _, row in df.iterrows()
+        ]
+    return {
+        "next_gw": {"transfers": _rows(plan_1gw_df)},
+        "five_gw": {"transfers": _rows(plan_5gw_df)},
         "free_transfers": free_transfers,
     }
 
@@ -70,10 +77,15 @@ def build_squad_plan(starting_xi: pd.DataFrame, bench: pd.DataFrame, formation: 
 
 def _format_plan_text(kind: str, plan: dict) -> str:
     if kind == "transfer":
-        if not plan["transfers"]:
-            return "No transfers recommended this week."
-        lines = [f"  {t['sell']} -> {t['buy']} (net {t['net']:+.1f})" for t in plan["transfers"]]
-        return "\n".join(lines)
+        def _fmt(variant_key: str) -> str:
+            rows = plan[variant_key]["transfers"]
+            if not rows:
+                return "    No transfers recommended."
+            return "\n".join(f"    {t['sell']} -> {t['buy']} (net {t['net']:+.1f})" for t in rows)
+        return (
+            f"  Next GW only:\n{_fmt('next_gw')}\n"
+            f"  Next 5 GWs (fixture-weighted):\n{_fmt('five_gw')}"
+        )
     if kind == "captain":
         return f"  Captain: {plan['captain_web_name']} / Vice: {plan['vice_web_name']}"
     return f"  {plan['formation'][0]}-{plan['formation'][1]}-{plan['formation'][2]}: {', '.join(plan['starting_names'])}\n  Bench: {', '.join(plan['bench_names'])}"
@@ -121,6 +133,26 @@ def _finish(conn, season: str, event_id: int, kind: str, status: str, detail: st
             "WHERE season = %s AND event_id = %s AND kind = %s",
             (status, detail[:2000], season, event_id, kind),
         )
+
+
+def _resolve_transfer_variant(kind: str, action: str, plan: dict) -> tuple[dict, str]:
+    """For kind=="transfer", plan_json (build_transfer_plan) nests both candidate plans under
+    one row - this is where the horizon choice actually gets made, picking whichever one the
+    approving action means. action=="appr5gw" (the 5-GW button) -> five_gw; action=="appr1gw"
+    (the Next-GW button) or "auto" (T-30m timeout, nothing tapped) -> next_gw, an explicit
+    default rather than an implicit one, so an unattended auto-submit never silently changes
+    which plan gets used.
+
+    Returns (the flat {"transfers": [...]} shape execute_kind/_execute_transfer already expect -
+    unchanged by this feature, so execution logic doesn't need to know about variants at all -
+    plus a short label to append to the confirmation message, e.g. " (5-GW horizon)", so it's
+    never ambiguous after the fact which one actually went through). captain/squad have no
+    variant - plan passes through as-is with an empty label."""
+    if kind != "transfer":
+        return plan, ""
+    if action == "appr5gw":
+        return {"transfers": plan["five_gw"]["transfers"]}, " (5-GW horizon)"
+    return {"transfers": plan["next_gw"]["transfers"]}, " (next GW)"
 
 
 def _reject(conn, season: str, event_id: int, kind: str) -> bool:
@@ -191,14 +223,25 @@ async def send_approval_requests(
     for kind in KINDS:
         lines.append(f"{_KIND_LABEL[kind]}:\n{_format_plan_text(kind, plans[kind])}\n")
         tag = f"{kind}:{season}:{event_id}"
-        keyboard.append([
-            InlineKeyboardButton(f"✅ Approve {_KIND_LABEL[kind]}", callback_data=f"appr:{tag}"),
-            InlineKeyboardButton(f"❌ Skip", callback_data=f"rej:{tag}"),
-        ])
+        if kind == "transfer":
+            # Two horizons, not two independent approvals - exactly one of these two buttons is
+            # ever actually executed (see _resolve_transfer_variant), both just claim the same
+            # pending_approvals row. Skip voids the whole transfer recommendation, either version.
+            keyboard.append([
+                InlineKeyboardButton("✅ Approve (Next GW)", callback_data=f"appr1gw:{tag}"),
+                InlineKeyboardButton("✅ Approve (5 GWs)", callback_data=f"appr5gw:{tag}"),
+            ])
+            keyboard.append([InlineKeyboardButton("❌ Skip transfer plan", callback_data=f"rej:{tag}")])
+        else:
+            keyboard.append([
+                InlineKeyboardButton(f"✅ Approve {_KIND_LABEL[kind]}", callback_data=f"appr:{tag}"),
+                InlineKeyboardButton(f"❌ Skip", callback_data=f"rej:{tag}"),
+            ])
     lines.append(
         "\n⚠️ Anything you don't respond to auto-submits within the last ~2h before "
         "the deadline (your standing default, timing depends on when GitHub's scheduler actually "
-        "runs) - tap Skip now if you don't want that."
+        "runs) - tap Skip now if you don't want that. An un-tapped transfer plan auto-submits "
+        "the Next GW version."
     )
 
     bot = _bot()
@@ -314,28 +357,49 @@ async def poll_and_process(conn) -> None:
         cq = update.callback_query
         if cq is None:
             continue
-        if cq.from_user is None or cq.from_user.id != settings.TELEGRAM_CHAT_ID:
-            await bot.answer_callback_query(cq.id, text="Not authorized.")
+        try:
+            await _process_callback_query(conn, bot, cq)
+        except Exception as exc:  # noqa: BLE001 - one bad update must never take the whole
+            # batch, or every later run this gameweek, down with it. Real-world trigger: Telegram
+            # rejects answerCallbackQuery on a query more than ~a few seconds old
+            # (telegram.error.BadRequest: "Query is too old..."), and this workflow's own
+            # schedule is best-effort and can land hours late (see TIERS' widening note) - so a
+            # tap that arrives fine can still be stale by the time a delayed run finally sees it.
+            # _save_offset above already advanced past this update regardless of outcome, so
+            # there's nothing left to retry here - log it to the job's own stdout (the only
+            # place this is visible; Telegram has no channel to report its own failure on) and
+            # move on to the rest of the batch.
+            print(f"Error processing Telegram update {update.update_id}, skipping it: {exc!r}")
             continue
-        await bot.answer_callback_query(cq.id)
 
-        action, kind, season, event_id_str = cq.data.split(":")
-        event_id = int(event_id_str)
-        if kind not in KINDS:
-            continue
 
-        if action == "rej":
-            if _reject(conn, season, event_id, kind):
-                await _reply(cq.from_user.id, f"Skipped: {_KIND_LABEL[kind]} for event {event_id}.")
-            continue
+async def _process_callback_query(conn, bot: Bot, cq) -> None:
+    if cq.from_user is None or cq.from_user.id != settings.TELEGRAM_CHAT_ID:
+        await bot.answer_callback_query(cq.id, text="Not authorized.")
+        return
+    await bot.answer_callback_query(cq.id)
 
-        plan = _claim(conn, season, event_id, kind)
-        if plan is None:
-            continue  # already decided/executed elsewhere (e.g. the T-30m timeout beat this tap)
-        ok, detail = execute_kind(conn, season, event_id, kind, plan)
-        _finish(conn, season, event_id, kind, "executed" if ok else "failed", detail)
-        prefix = "✅" if ok else "⚠️"
-        await _reply(cq.from_user.id, f"{prefix} {_KIND_LABEL[kind]}: {detail}")
+    action, kind, season, event_id_str = cq.data.split(":")
+    event_id = int(event_id_str)
+    if kind not in KINDS:
+        return
+
+    if action == "rej":
+        if _reject(conn, season, event_id, kind):
+            await _reply(cq.from_user.id, f"Skipped: {_KIND_LABEL[kind]} for event {event_id}.")
+        return
+
+    plan = _claim(conn, season, event_id, kind)
+    if plan is None:
+        return  # already decided/executed elsewhere (e.g. the T-30m timeout beat this tap)
+    exec_plan, variant_label = _resolve_transfer_variant(kind, action, plan)
+    ok, detail = execute_kind(conn, season, event_id, kind, exec_plan)
+    _finish(conn, season, event_id, kind, "executed" if ok else "failed", detail)
+    prefix = "✅" if ok else "⚠️"
+    # variant_label (e.g. " (5-GW horizon)") makes the confirmation name exactly what was
+    # approved, not just that "the transfer plan" went through - the specific ask behind this:
+    # a tap should always come back with an unambiguous record of what actually happened.
+    await _reply(cq.from_user.id, f"{prefix} {_KIND_LABEL[kind]}{variant_label}: {detail}")
 
 
 def auto_submit_expired(conn, season: str, event_id: int) -> None:
@@ -347,12 +411,13 @@ def auto_submit_expired(conn, season: str, event_id: int) -> None:
         plan = _claim(conn, season, event_id, kind)
         if plan is None:
             continue
-        ok, detail = execute_kind(conn, season, event_id, kind, plan)
+        exec_plan, variant_label = _resolve_transfer_variant(kind, "auto", plan)
+        ok, detail = execute_kind(conn, season, event_id, kind, exec_plan)
         _finish(conn, season, event_id, kind, "executed" if ok else "failed", detail)
         prefix = "✅" if ok else "⚠️"
         asyncio.run(bot.send_message(
             chat_id=settings.TELEGRAM_CHAT_ID,
-            text=f"{prefix} (auto, no response received) {_KIND_LABEL[kind]}: {detail}",
+            text=f"{prefix} (auto, no response received) {_KIND_LABEL[kind]}{variant_label}: {detail}",
         ))
 
 
