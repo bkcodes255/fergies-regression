@@ -1,54 +1,53 @@
 [theme]
 base = "dark"
 
-# Core palette - dark navy + red accent, inspired by M-Digital's dashboard
-primaryColor = "#E11D2E"
-backgroundColor = "#0F1420"
-secondaryBackgroundColor = "#161B28"
-textColor = "#E6EDF3"
-borderColor = "#232838"
-# Links use a lighter tint of the brand red: #E11D2E is fine as a fill but only 3.9:1 as text
-# on backgroundColor, under the 4.5:1 floor; #F87171 is 6.7:1.
-linkColor = "#F87171"
+# Team Talk palette - the studio around a magnetic tactics board: near-black ground, board
+# green panels, chalk-white text, the magnets' red, and the gaffer's yellow marker.
+# dashboard/app.py's tokens and dashboard/team_talk.py use the same values - keep them in sync.
+primaryColor = "#D7263D"
+backgroundColor = "#0B0F0D"
+secondaryBackgroundColor = "#111A15"
+textColor = "#F2F5F0"
+borderColor = "#24352B"
+# Links in the marker yellow: the red is a fill colour, not a text colour.
+linkColor = "#FFE14D"
 linkUnderline = false
 
 # Semantic colors (deltas, badges, status)
-greenColor = "#22C55E"
-redColor = "#E11D2E"
-blueColor = "#3B82F6"
-orangeColor = "#F59E0B"
-violetColor = "#A855F7"
-grayColor = "#8B94A8"
+greenColor = "#7BE495"
+redColor = "#D7263D"
+blueColor = "#5B9BF5"
+orangeColor = "#FFE14D"
+violetColor = "#C084FC"
+grayColor = "#A9B8AE"
 
-# Chart palette - red first (brand), then readable supporting hues
-chartCategoricalColors = ["#E11D2E", "#3B82F6", "#22C55E", "#A855F7", "#F59E0B", "#06B6D4", "#8B94A8"]
-chartSequentialColors = ["#161B28", "#2A1119", "#3F1520", "#551A26", "#6B1E2C", "#812333", "#97283A", "#AD2D41", "#C33247", "#E11D2E"]
+# Chart palette - the marker yellow first (the model's own numbers), then the magnets' red
+chartCategoricalColors = ["#FFE14D", "#D7263D", "#7BE495", "#5B9BF5", "#C084FC", "#22D3EE", "#A9B8AE"]
+chartSequentialColors = ["#111A15", "#14402A", "#1D5A3A", "#2E7449", "#4E8F4F", "#7AA94F", "#A7C04D", "#D2D24C", "#F0DC4C", "#FFE14D"]
 
 # Dataframe styling
-dataframeBorderColor = "#232838"
-dataframeHeaderBackgroundColor = "#161B28"
+dataframeBorderColor = "#24352B"
+dataframeHeaderBackgroundColor = "#111A15"
 
-# Typography - Space Grotesk: a geometric sans with a technical, stats-forward feel (built
-# for a numbers-heavy sports dashboard, not a generic app UI) and distinctive numerals, unlike
-# Inter (functional but the single most common UI font right now - see the dataviz skill's own
-# "avoid overused font families" guidance). Swapped 2026-09 at Brian's request.
-font = "Space Grotesk:https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
-headingFont = "Space Grotesk:https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&display=swap"
+# Typography - the Team Talk pair: Barlow for text, Big Shoulders Display (stadium-scoreboard
+# condensed caps) for headings. Replaced Space Grotesk, one of the stock AI-dashboard faces.
+font = "Barlow:https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&display=swap"
+headingFont = "'Big Shoulders Display':https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&display=swap"
 codeFont = "'JetBrains Mono':https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
 baseFontSize = 15
 baseFontWeight = 400
-headingFontSizes = ["32px", "24px", "20px", "16px", "14px", "12px"]
-headingFontWeights = [700, 600, 600, 600, 500, 500]
+headingFontSizes = ["38px", "30px", "24px", "20px", "16px", "14px"]
+headingFontWeights = [900, 800, 800, 800, 700, 700]
 
-# Shape - rounded cards, pill buttons (matches M-Digital's stat cards + pill tabs)
-baseRadius = "large"
-buttonRadius = "full"
+# Shape - the board's slightly rounded edges, not pills
+baseRadius = "medium"
+buttonRadius = "medium"
 showWidgetBorder = true
 showSidebarBorder = true
 
 [theme.sidebar]
-backgroundColor = "#0F1420"
-secondaryBackgroundColor = "#161B28"
-textColor = "#E6EDF3"
-borderColor = "#232838"
-primaryColor = "#E11D2E"
+backgroundColor = "#0B0F0D"
+secondaryBackgroundColor = "#111A15"
+textColor = "#F2F5F0"
+borderColor = "#24352B"
+primaryColor = "#D7263D"
