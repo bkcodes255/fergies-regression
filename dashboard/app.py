@@ -27,7 +27,7 @@ from src.ingestion.db import get_connection, get_engine
 from src.models.experiment import MODEL_TYPES, evaluate_feature_subset, paired_bootstrap_p_value
 from src.models.monte_carlo import simulate_squad, summarize_simulation
 from src.models.train import TEST_SEASON, TRAIN_SEASONS, direct_points_baseline
-from src.recommendations.horizon import DEFAULT_HORIZON, compute_horizon_points, load_fixture_window
+from src.recommendations.horizon import DEFAULT_HORIZON, compute_horizon_points, fixture_grade, load_fixture_window
 from src.recommendations.squad_builder import build_optimal_squad
 from src.recommendations.squad_optimizer import best_starting_xi
 from src.recommendations.transfers import compute_free_transfers, suggest_transfer_plan
@@ -307,17 +307,6 @@ def format_deadline_local(deadline_time) -> str:
     so that is the time zone shown (e.g. "Sat 17 Oct, 11:00 UK time")."""
     local = pd.Timestamp(deadline_time).tz_convert("Europe/London")
     return f"{local:%a} {local.day} {local:%b, %H:%M} UK time"
-
-
-def fixture_grade(score) -> int | None:
-    """Buckets this project's fixture-difficulty score into a 1 (easiest) to 5 (hardest) grade,
-    the bands the Fixtures grid colors by. None for a blank (no fixture)."""
-    if score is None or pd.isna(score):
-        return None
-    for grade, upper in enumerate((-0.35, -0.1, 0.1, 0.35), start=1):
-        if score <= upper:
-            return grade
-    return 5
 
 
 # Design tokens - lifted directly from .streamlit/config.toml, not invented: this is the
