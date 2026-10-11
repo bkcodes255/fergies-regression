@@ -506,6 +506,31 @@ Disabling this workflow only stops new reminders/approvals/auto-submits from fir
 not touch `ingest_and_predict.yml` (data/prediction refresh keeps running), and it doesn't
 revert anything already submitted to FPL.
 
+## Tools server (read-only, v0.1)
+
+`src/tools_server/` lets other agents - Muse through a custom connector, Claude through MCP - read
+the app's data and plans without being able to change anything. One server, two faces over the
+same ten tools: MCP (streamable HTTP) at `/mcp`, and REST at `POST /v1/tools/<name>` with
+`GET /v1/tools` listing every tool and its input schema.
+
+Tools: `get_status` (data freshness and warnings - check first), `get_current_gameweek`,
+`get_squad`, `search_players`, `get_top_predictions`, `get_transfer_plan`, `get_lineup_plan`,
+`get_fixtures`, `get_pending_approvals`, `get_gameweek_review`. The plan tools call
+`src/recommendations/gameweek_plan.py`, the same code the Telegram approval flow proposes and
+auto-submits from, so an agent explains the plan that would actually run.
+
+Read-only three ways: the `fergies_tools` role (`sql/tools_server_role.sql`) has SELECT on only
+the tables and views the tools read, it defaults every transaction to read-only, and the server
+opens each call with `SET TRANSACTION READ ONLY`. Every route except `/healthz` needs
+`Authorization: Bearer <key>` from `TOOLS_SERVER_API_KEYS`; the server won't start without one.
+
+```bash
+python scripts/check_tools_server.py   # call every tool against your database, no server
+python -m src.tools_server             # serve on :8080 (PORT to change)
+```
+
+Not hosted yet: where and how it runs is still open.
+
 ## Build phases
 
 1. **Foundation** — FPL API client, raw snapshots, Postgres schema, manual ingestion
