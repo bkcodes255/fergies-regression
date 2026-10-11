@@ -28,6 +28,7 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import settings
 from src.fpl_write.client import FPLLoginError, get_my_team, login_via_cookie, set_captain, set_lineup, submit_transfers
+from src.recommendations.squad_optimizer import best_starting_xi
 
 KINDS = ("transfer", "captain", "squad")
 _KIND_LABEL = {"transfer": "Transfer plan", "captain": "Captain pick", "squad": "Starting XI/bench"}
@@ -267,7 +268,10 @@ def execute_kind(conn, season: str, event_id: int, kind: str, plan: dict) -> tup
     entry_id = settings.ENTRY_ID
     try:
         if kind == "transfer":
-            return _execute_transfer(conn, session, entry_id, season, event_id, plan)
+            ok, detail = _execute_transfer(conn, session, entry_id, season, event_id, plan)
+            if ok and plan["transfers"]:
+                detail += _reconcile_after_transfer(conn, session, entry_id, season, event_id)
+            return ok, detail
         if kind == "captain":
             return _execute_captain(conn, session, entry_id, season, plan)
         return _execute_squad(conn, session, entry_id, season, plan)
@@ -309,25 +313,133 @@ def _execute_captain(conn, session, entry_id: int, season: str, plan: dict) -> t
     captain_element = id_map[plan["captain_player_code"]]
     vice_element = id_map[plan["vice_player_code"]]
     my_team = get_my_team(session, entry_id)
+    live_elements = {p["element"] for p in my_team["picks"]}
+    note = ""
+    if captain_element not in live_elements or vice_element not in live_elements:
+        # The approved pick names someone no longer in the squad (sold by a transfer since the
+        # plan was made). Re-pick both by the plan's own rule - top two predicted in the best XI
+        # of the squad as it is now - rather than send FPL a captain who isn't in the team.
+        captain_element, vice_element, names = _replan_captain(_live_squad(conn, season, my_team))
+        note = (f" Re-picked for your current squad: {plan['captain_web_name']}/{plan['vice_web_name']} "
+                f"are no longer both in it, so captain {names[0]}, vice {names[1]}.")
     resp = set_captain(session, entry_id, my_team, captain_element, vice_element)
     if resp.status_code not in (200, 202):
         return False, f"Captain change failed - HTTP {resp.status_code}: {resp.text[:500]}"
+    if note:
+        return True, "Captain set." + note
     return True, f"Captain set to {plan['captain_web_name']} (vice {plan['vice_web_name']})."
 
 
 def _execute_squad(conn, session, entry_id: int, season: str, plan: dict) -> tuple[bool, str]:
     codes = plan["starting_player_codes"] + plan["bench_player_codes"]
     id_map = _fpl_id_map(conn, season, codes)
-    starting_elements = [id_map[c] for c in plan["starting_player_codes"]]
-    bench_elements = [id_map[c] for c in plan["bench_player_codes"]]
+    starting_elements = [id_map[c] for c in plan["starting_player_codes"] if c in id_map]
+    bench_elements = [id_map[c] for c in plan["bench_player_codes"] if c in id_map]
     my_team = get_my_team(session, entry_id)
+    formation = plan["formation"]
+    note = ""
+    if set(starting_elements + bench_elements) != {p["element"] for p in my_team["picks"]}:
+        # The approved lineup was built from the squad before a transfer (the plan is made at
+        # T-3h; a transfer can execute before this does). set_lineup only reorders the current
+        # 15, so applying the old list fails outright. Re-plan the XI from the live squad by the
+        # same rule the plan used, and say what changed.
+        live = _live_squad(conn, season, my_team)
+        starting_elements, bench_elements, formation = _replan_lineup(live)
+        planned_names = dict(zip(codes, plan["starting_names"] + plan["bench_names"]))
+        gone = [planned_names[c] for c in codes if c not in set(live["player_code"])]
+        arrived = list(live.loc[~live["player_code"].isin(codes), "web_name"])
+        note = (f" Re-planned for your current squad ({', '.join(arrived) or 'new players'} in, "
+                f"{', '.join(gone) or 'some players'} out since the lineup was proposed).")
     try:
         resp = set_lineup(session, entry_id, my_team, starting_elements, bench_elements)
     except ValueError as exc:
         return False, f"Lineup not applied: {exc}"
     if resp.status_code not in (200, 202):
         return False, f"Lineup change failed - HTTP {resp.status_code}: {resp.text[:500]}"
-    return True, f"Lineup set: {plan['formation'][0]}-{plan['formation'][1]}-{plan['formation'][2]}."
+    return True, f"Lineup set: {formation[0]}-{formation[1]}-{formation[2]}." + note
+
+
+def _live_squad(conn, season: str, my_team: dict) -> pd.DataFrame:
+    """The 15 players FPL has in the squad right now, with position and latest prediction -
+    what a re-plan works from. Same prediction rule as deadline_scheduler.load_squad (latest
+    predicted event, missing prediction counts as 0)."""
+    elements = [int(p["element"]) for p in my_team["picks"]]
+    df = pd.read_sql_query(
+        """
+        SELECT ps.fpl_id AS element, ps.player_code, ps.element_type, p.web_name, pr.predicted_points
+        FROM player_seasons ps
+        JOIN players p ON p.player_code = ps.player_code
+        LEFT JOIN predictions pr ON pr.player_code = ps.player_code AND pr.season = ps.season
+            AND pr.event_id = (SELECT MAX(event_id) FROM predictions WHERE season = ps.season)
+        WHERE ps.season = %(s)s AND ps.fpl_id = ANY(%(els)s)
+        """,
+        conn, params={"s": season, "els": elements},
+    )
+    if len(df) != len(elements):
+        missing = set(elements) - set(df["element"])
+        raise ValueError(f"Can't re-plan: FPL elements {sorted(missing)} aren't in player_seasons for {season} yet.")
+    df["position"] = df["element_type"].map({1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"})
+    df["predicted_points"] = df["predicted_points"].fillna(0.0)
+    return df
+
+
+def _replan_lineup(live: pd.DataFrame) -> tuple[list[int], list[int], tuple[int, int, int]]:
+    """Best XI from the live squad, bench ordered by predicted points - the same rule
+    deadline_scheduler.compute_recommendation uses to build the original squad plan."""
+    starting_xi, formation = best_starting_xi(live)
+    bench = live[~live["player_code"].isin(starting_xi["player_code"])].sort_values(
+        "predicted_points", ascending=False
+    )
+    return [int(e) for e in starting_xi["element"]], [int(e) for e in bench["element"]], formation
+
+
+def _replan_captain(live: pd.DataFrame) -> tuple[int, int, tuple[str, str]]:
+    """Top two predicted in the live best XI - the rule the original captain plan used."""
+    starting_xi, _ = best_starting_xi(live)
+    top = starting_xi.sort_values("predicted_points", ascending=False).head(2)
+    return int(top.iloc[0]["element"]), int(top.iloc[1]["element"]), (top.iloc[0]["web_name"], top.iloc[1]["web_name"])
+
+
+def _status(conn, season: str, event_id: int, kind: str) -> str | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT status FROM pending_approvals WHERE season = %s AND event_id = %s AND kind = %s",
+            (season, event_id, kind),
+        )
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
+def _reconcile_after_transfer(conn, session, entry_id: int, season: str, event_id: int) -> str:
+    """A transfer that lands AFTER the captain or lineup was already applied leaves them
+    describing the old squad: FPL puts the new signing in the sold player's slot (on the bench,
+    if that's where he was) and drops the armband if the captain was sold. Re-apply whichever
+    of the two were approved and executed; leave a rejected one alone - you said no to it.
+    Not-yet-decided ones fix themselves when they execute (see _execute_squad/_execute_captain).
+    Returns text to append to the transfer's confirmation; never raises."""
+    notes = []
+    try:
+        my_team = get_my_team(session, entry_id)
+        live = _live_squad(conn, season, my_team)
+        live_elements = set(live["element"])
+        captain = next((p["element"] for p in my_team["picks"] if p["is_captain"]), None)
+        vice = next((p["element"] for p in my_team["picks"] if p["is_vice_captain"]), None)
+        if _status(conn, season, event_id, "captain") == "executed" and (captain not in live_elements or vice not in live_elements):
+            cap_el, vice_el, names = _replan_captain(live)
+            resp = set_captain(session, entry_id, my_team, cap_el, vice_el)
+            ok = resp.status_code in (200, 202)
+            notes.append(f"captain re-picked for the new squad: {names[0]} (vice {names[1]})" if ok
+                         else f"captain re-pick failed - HTTP {resp.status_code}, check it in the app")
+            my_team = get_my_team(session, entry_id)
+        if _status(conn, season, event_id, "squad") == "executed":
+            starting, bench, formation = _replan_lineup(live)
+            resp = set_lineup(session, entry_id, my_team, starting, bench)
+            ok = resp.status_code in (200, 202)
+            notes.append(f"lineup re-applied for the new squad ({formation[0]}-{formation[1]}-{formation[2]})" if ok
+                         else f"lineup re-apply failed - HTTP {resp.status_code}, check it in the app")
+    except Exception as exc:  # noqa: BLE001 - the transfer itself succeeded; report, never undo that
+        notes.append(f"couldn't update the lineup/captain for the new squad ({exc}) - check them in the app")
+    return (" Then: " + "; ".join(notes) + ".") if notes else ""
 
 
 def _lookup_code_by_name(conn, season: str, web_name: str) -> int:
