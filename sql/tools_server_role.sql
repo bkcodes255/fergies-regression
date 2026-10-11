@@ -32,8 +32,11 @@ BEGIN
     FOREACH t IN ARRAY ARRAY[
         'teams', 'players', 'player_seasons', 'gameweeks', 'fixtures', 'player_gameweek_stats',
         'player_price_snapshots', 'predictions', 'managers', 'manager_gameweeks', 'squad_picks',
-        'pending_approvals'
+        'pending_approvals',
+        -- Plan snapshots (sql/plan_snapshots.sql) - skipped until that migration has run.
+        'transfer_plans', 'lineup_plans', 'player_horizons'
     ] LOOP
+        CONTINUE WHEN to_regclass('public.' || t) IS NULL;
         EXECUTE format('GRANT SELECT ON public.%I TO fergies_tools', t);
         EXECUTE format('DROP POLICY IF EXISTS fergies_tools_read ON public.%I', t);
         EXECUTE format(

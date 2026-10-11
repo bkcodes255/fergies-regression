@@ -63,3 +63,13 @@ jobs:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           FPL_SEASON: "2026-27"
         run: python -m src.models.predict_live
+
+      # Stores the recommendation (transfer plans, post-transfer lineups, horizon points) for the
+      # read-only tools Edge Function - last, so it's built on the squad and predictions above.
+      # A no-op until sql/plan_snapshots.sql has been applied.
+      - name: Snapshot plans for the tools server
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          FPL_SEASON: "2026-27"
+          FPL_ENTRY_ID: ${{ secrets.FPL_ENTRY_ID }}
+        run: python -m src.recommendations.plan_snapshots
