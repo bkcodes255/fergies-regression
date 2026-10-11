@@ -74,3 +74,15 @@ def compute_horizon_points(rankings: pd.DataFrame, fixtures: pd.DataFrame, horiz
     result["horizon_multiplier_sum"] = result["horizon_multiplier_sum"].fillna(0.0)
     result["horizon_points"] = result["predicted_points"] * result["horizon_multiplier_sum"]
     return result.drop(columns=["horizon_multiplier_sum"])
+
+
+def fixture_grade(score) -> int | None:
+    """Buckets this project's fixture-difficulty score into a 1 (easiest) to 5 (hardest) grade -
+    the bands the dashboard's Fixtures grid colors by and the tools server reports. None for a
+    blank (no fixture)."""
+    if score is None or pd.isna(score):
+        return None
+    for grade, upper in enumerate((-0.35, -0.1, 0.1, 0.35), start=1):
+        if score <= upper:
+            return grade
+    return 5

@@ -361,7 +361,7 @@ def _execute_squad(conn, session, entry_id: int, season: str, plan: dict) -> tup
 
 def _live_squad(conn, season: str, my_team: dict) -> pd.DataFrame:
     """The 15 players FPL has in the squad right now, with position and latest prediction -
-    what a re-plan works from. Same prediction rule as deadline_scheduler.load_squad (latest
+    what a re-plan works from. Same prediction rule as gameweek_plan.load_squad (latest
     predicted event, missing prediction counts as 0)."""
     elements = [int(p["element"]) for p in my_team["picks"]]
     df = pd.read_sql_query(
@@ -385,7 +385,7 @@ def _live_squad(conn, season: str, my_team: dict) -> pd.DataFrame:
 
 def _replan_lineup(live: pd.DataFrame) -> tuple[list[int], list[int], tuple[int, int, int]]:
     """Best XI from the live squad, bench ordered by predicted points - the same rule
-    deadline_scheduler.compute_recommendation uses to build the original squad plan."""
+    gameweek_plan.compute_recommendation uses to build the original squad plan."""
     starting_xi, formation = best_starting_xi(live)
     bench = live[~live["player_code"].isin(starting_xi["player_code"])].sort_values(
         "predicted_points", ascending=False
