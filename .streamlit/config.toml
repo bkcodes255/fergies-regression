@@ -7,7 +7,9 @@ backgroundColor = "#0F1420"
 secondaryBackgroundColor = "#161B28"
 textColor = "#E6EDF3"
 borderColor = "#232838"
-linkColor = "#E11D2E"
+# Links use a lighter tint of the brand red: #E11D2E is fine as a fill but only 3.9:1 as text
+# on backgroundColor, under the 4.5:1 floor; #F87171 is 6.7:1.
+linkColor = "#F87171"
 linkUnderline = false
 
 # Semantic colors (deltas, badges, status)

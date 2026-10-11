@@ -6,7 +6,9 @@ Run with:
 from __future__ import annotations
 
 import base64
+import html
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -29,7 +31,7 @@ from src.recommendations.squad_builder import build_optimal_squad
 from src.recommendations.squad_optimizer import best_starting_xi
 from src.recommendations.transfers import compute_free_transfers, suggest_transfer_plan
 
-st.set_page_config(page_title="Fergie's Regression", layout="wide")
+st.set_page_config(page_title="Fergie's Regression", page_icon="⚽", layout="wide")
 
 # Streamlit's native tab bar doesn't wrap - on a narrow screen it just scrolls horizontally,
 # so the last tab ("Model Lab") is permanently hidden behind a cut-off "M›" until the user
@@ -45,8 +47,22 @@ st.markdown(
         row-gap: 4px;
         column-gap: 16px;
     }
-    div[data-testid="stTabs"] div[role="tablist"] button {
+    /* [role="tab"], not button: Streamlit 1.65 renders tabs as divs, so a button selector
+       silently stopped matching. */
+    div[data-testid="stTabs"] div[role="tablist"] [role="tab"] {
         white-space: nowrap;
+    }
+    /* The brand red (#E11D2E) is fine as a fill but only 3.9:1 as text on this background -
+       under the 4.5:1 floor for body-size text - so the active tab keeps its red underline
+       but its label uses the primary text color. */
+    div[data-testid="stTabs"] [role="tab"][aria-selected="true"],
+    div[data-testid="stTabs"] [role="tab"][aria-selected="true"] p {
+        color: #E6EDF3;
+    }
+    /* Numbers are content: tabular figures keep columns of points/prices aligned digit for
+       digit. Space Grotesk ships a tnum feature, so this changes widths, not the face. */
+    .stApp, .stApp * {
+        font-variant-numeric: tabular-nums;
     }
     </style>
     """,
@@ -285,6 +301,24 @@ def format_time_left(deadline_time) -> str:
     return f"{hours}h {minutes}m"
 
 
+def format_deadline_local(deadline_time) -> str:
+    """The deadline as a clock time, not just a countdown - FPL deadlines are set in UK time,
+    so that is the time zone shown (e.g. "Sat 17 Oct, 11:00 UK time")."""
+    local = pd.Timestamp(deadline_time).tz_convert("Europe/London")
+    return f"{local:%a} {local.day} {local:%b, %H:%M} UK time"
+
+
+def fixture_grade(score) -> int | None:
+    """Buckets this project's fixture-difficulty score into a 1 (easiest) to 5 (hardest) grade,
+    the bands the Fixtures grid colors by. None for a blank (no fixture)."""
+    if score is None or pd.isna(score):
+        return None
+    for grade, upper in enumerate((-0.35, -0.1, 0.1, 0.35), start=1):
+        if score <= upper:
+            return grade
+    return 5
+
+
 # Design tokens - lifted directly from .streamlit/config.toml, not invented: this is the
 # app's real dark theme (background/card/border/text), and the position/status colors below
 # are chosen from its own chartCategoricalColors / semantic-colors sets so nothing here
@@ -297,9 +331,22 @@ CARD_BORDER = "#232838"
 TEXT_PRIMARY = "#E6EDF3"
 TEXT_MUTED = "#8B94A8"
 CAPTAIN_BADGE = "#E11D2E"  # brand primary - the one thing on a pitch worth a bold color
+ON_ACCENT = "#FFFFFF"  # text/icons on a CAPTAIN_BADGE fill (4.75:1)
 STATUS_GOOD = "#22C55E"
 STATUS_WARNING = "#F59E0B"
+SERIES_MODEL = "#3B82F6"  # this model's own numbers in charts (blue, never the brand red)
 POSITION_ACCENT = {"GKP": "#8B94A8", "DEF": "#3B82F6", "MID": "#A855F7", "FWD": "#06B6D4"}
+PITCH_STRIPES = ("#1F9D4A", "#1C8F43")
+# Fixture difficulty, easiest to hardest: (label, background, text). Every text/background
+# pair here is 4.5:1 or better - the middle-easy green used to be #15803D, which put the
+# light cell text at 4.2:1.
+FIXTURE_SCALE = [
+    ("1", STATUS_GOOD, BG),
+    ("2", "#166534", TEXT_PRIMARY),
+    ("3", CARD_BORDER, TEXT_PRIMARY),
+    ("4", STATUS_WARNING, BG),
+    ("5", CAPTAIN_BADGE, ON_ACCENT),
+]
 
 # Every tile below renders via st.iframe, which mounts in its OWN
 # iframe - it does NOT inherit the page's <link>/font-family from .streamlit/config.toml, so
@@ -325,8 +372,37 @@ FONT_CSS = (
     '<link rel="preload" as="style" '
     'href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" '
     'onload="this.onload=null;this.rel=\'stylesheet\'">'
-    "<style>*{font-family:'Space Grotesk',system-ui,-apple-system,sans-serif;box-sizing:border-box;margin:0;}</style>"
+    "<style>*{font-family:'Space Grotesk',system-ui,-apple-system,sans-serif;box-sizing:border-box;margin:0;"
+    "font-variant-numeric:tabular-nums;}</style>"
 )
+
+
+def _tile_text(tile_html: str) -> str:
+    """The visible text of a tile, for its iframe's accessible name - without one, a screen
+    reader announces every tile on the page as "st.iframe"."""
+    text = re.sub(r"<style.*?</style>|<[^>]+>", " ", tile_html, flags=re.S)
+    text = " ".join(html.unescape(text).split())
+    return text if len(text) <= 160 else text[:157].rstrip() + "..."
+
+
+def show_tile(tile_html: str, height: int | str, alt: str | None = None) -> None:
+    """st.iframe for the static HTML tiles below: named for assistive technology (alt maps to
+    the iframe's title), and kept out of the keyboard tab order, since nothing inside a tile
+    is interactive - otherwise a keyboard user tabs through ~10 empty stops per tab."""
+    st.iframe(tile_html, height=height, alt=alt or _tile_text(tile_html) or "Dashboard tile", tab_index=-1)
+
+
+def style_chart(fig, ax) -> None:
+    """The dashboard's dark chart style, so a matplotlib figure sits on the page like the tiles
+    around it instead of as a white box - every st.pyplot chart goes through this."""
+    fig.patch.set_facecolor(BG)
+    ax.set_facecolor(BG)
+    ax.tick_params(colors=TEXT_MUTED)
+    ax.xaxis.label.set_color(TEXT_MUTED)
+    ax.yaxis.label.set_color(TEXT_MUTED)
+    for name, spine in ax.spines.items():
+        spine.set_visible(name in ("bottom", "left"))
+        spine.set_color(CARD_BORDER)
 
 
 def captain_recommendation(starting: pd.DataFrame) -> dict | None:
@@ -387,10 +463,10 @@ def render_action_tile_html(status: str, headline: str, subtext: str) -> str:
     is_good = status == "good"
     accent = STATUS_GOOD if is_good else CAPTAIN_BADGE
     icon = (
-        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0F1420" stroke-width="3" '
+        f'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{BG}" stroke-width="3" '
         'stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4L19 7"/></svg>'
         if is_good else
-        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" '
+        f'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{ON_ACCENT}" stroke-width="3" '
         'stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>'
     )
     return f"""
@@ -459,7 +535,7 @@ def _player_badge_html(name: str, points, position: str, size: int, is_captain: 
     badge = ""
     if is_captain:
         badge = (f'<div style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;'
-                  f'border-radius:50%;background:{CAPTAIN_BADGE};color:#fff;font-size:11px;'
+                  f'border-radius:50%;background:{CAPTAIN_BADGE};color:{ON_ACCENT};font-size:11px;'
                   f'font-weight:800;display:flex;align-items:center;justify-content:center;'
                   f'border:2px solid {BG};">C</div>')
     elif is_vice:
@@ -501,7 +577,10 @@ def render_pitch_html(starting: pd.DataFrame, bench_out_codes: set, value_col: s
     with BOTH a status-colored ring and a text label - never color alone, per the dataviz
     skill's accessibility rule. value_col lets callers reuse this for either the next-GW
     prediction or the fixture-weighted horizon total."""
-    row_top_pct = {"FWD": 8, "MID": 34, "DEF": 60, "GKP": 84}
+    # Rows sit far enough in from the edges that a whole card fits: a card is centered on its
+    # row and runs up to ~126px tall (2-line name plus a swap label), so the old 8% top row
+    # on a 480px pitch hung ~25px off the top edge.
+    row_top_pct = {"FWD": 12, "MID": 37, "DEF": 62, "GKP": 87}
     cards = []
     for pos in ("FWD", "MID", "DEF", "GKP"):
         row_players = starting[starting["position"] == pos].reset_index(drop=True)
@@ -520,8 +599,9 @@ def render_pitch_html(starting: pd.DataFrame, bench_out_codes: set, value_col: s
             )
     return f"""
     {FONT_CSS}
-    <div style="position:relative;width:100%;height:480px;border-radius:16px;overflow:hidden;
-                background:repeating-linear-gradient(180deg,#1f9d4a 0,#1f9d4a 48px,#1c8f43 48px,#1c8f43 96px);">
+    <div style="position:relative;width:100%;height:520px;border-radius:16px;overflow:hidden;
+                background:repeating-linear-gradient(180deg,{PITCH_STRIPES[0]} 0,{PITCH_STRIPES[0]} 48px,
+                           {PITCH_STRIPES[1]} 48px,{PITCH_STRIPES[1]} 96px);">
       <div style="position:absolute;left:0;right:0;top:50%;height:2px;background:rgba(255,255,255,0.45);"></div>
       <div style="position:absolute;left:50%;top:50%;width:100px;height:100px;
                   border:2px solid rgba(255,255,255,0.45);border-radius:50%;transform:translate(-50%,-50%);"></div>
@@ -651,8 +731,20 @@ season = settings.SEASON
 st.title("Fergie's Regression")
 st.caption("An FPL Analytics Report")
 
-last_gw = load_last_ingested_gw(season)
-rankings = load_player_rankings(season)
+# A designed failure state instead of a raw traceback: the most common way this page fails is
+# simply not reaching Postgres (no .env yet, a paused database, the network), and the fix is
+# always the same first check.
+try:
+    last_gw = load_last_ingested_gw(season)
+    rankings = load_player_rankings(season)
+except Exception as exc:  # noqa: BLE001 - any failure here means no page can render
+    st.error(
+        "**Can't load data from the database.** Check that `DATABASE_URL` is set in `.env` "
+        "(see `.env.example`) and that the database is running, then reload this page.",
+    )
+    with st.expander("Error details"):
+        st.code(f"{type(exc).__name__}: {exc}")
+    st.stop()
 predicted_gw = rankings["predicted_gw"].dropna().max() if not rankings.empty else None
 rankings = with_horizon(rankings, season)
 
@@ -661,16 +753,16 @@ rankings = with_horizon(rankings, season)
 # on every tab beneath it (two different design languages on one page, not one).
 header_cols = st.columns(3)
 with header_cols[0]:
-    st.iframe(render_stat_tile_html("Season", season), height=96)
+    show_tile(render_stat_tile_html("Season", season), height=96)
 with header_cols[1]:
-    st.iframe(render_stat_tile_html("Last ingested gameweek", str(last_gw) if last_gw is not None else "—"), height=96)
+    show_tile(render_stat_tile_html("Last ingested gameweek", str(last_gw) if last_gw is not None else "—"), height=96)
 with header_cols[2]:
-    st.iframe(render_stat_tile_html(
+    show_tile(render_stat_tile_html(
         "Predictions for", f"GW{int(predicted_gw)}" if predicted_gw and pd.notna(predicted_gw) else "—",
     ), height=96)
 
 if last_gw is not None and last_gw <= 2:
-    st.iframe(render_info_banner_html(
+    show_tile(render_info_banner_html(
         f"Early season ({last_gw} gameweek(s) ingested) — rolling form and fixture difficulty "
         "are still thin-sample and will sharpen as more gameweeks are ingested. This is "
         "expected behavior, not a bug."
@@ -707,7 +799,9 @@ if settings.ENTRY_ID:
                     f"<div style='font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;"
                     f"color:{TEXT_MUTED};margin-bottom:6px;'>{deadline['name']} deadline</div>"
                     f"<div style='font-size:44px;font-weight:800;line-height:1;color:{TEXT_PRIMARY};'>"
-                    f"{format_time_left(deadline['deadline_time'])}</div>",
+                    f"{format_time_left(deadline['deadline_time'])}</div>"
+                    f"<div style='font-size:14px;color:{TEXT_MUTED};margin-top:6px;'>"
+                    f"{format_deadline_local(deadline['deadline_time'])}</div>",
                     unsafe_allow_html=True,
                 )
             else:
@@ -716,17 +810,18 @@ if settings.ENTRY_ID:
             free_transfers = compute_free_transfers(manager_gw)
             bank = float(gw_row["bank"]) / 10 if gw_row is not None else 0.0
             with header_cols[1]:
-                st.iframe(render_stat_tile_html("Free transfers", str(free_transfers)), height=96)
+                show_tile(render_stat_tile_html("Free transfers", str(free_transfers)), height=96)
             with header_cols[2]:
-                st.iframe(render_stat_tile_html("Bank", f"£{bank:.1f}m"), height=96)
+                show_tile(render_stat_tile_html("Bank", f"£{bank:.1f}m"), height=96)
 
             cap = captain_recommendation(starting)
             changes = lineup_changes(squad)
 
             st.markdown("#### Your team")
-            st.iframe(render_pitch_html(starting, changes["bench_out_codes"]), height=500)
+            pitch_html = render_pitch_html(starting, changes["bench_out_codes"])
+            show_tile(pitch_html, height=540, alt="Your starting XI on a pitch: " + _tile_text(pitch_html))
             if not bench.empty:
-                st.iframe(render_bench_html(bench, changes["bring_in_codes"]), height=120)
+                show_tile(render_bench_html(bench, changes["bring_in_codes"]), height="content")
 
             action_cols = st.columns(2)
             with action_cols[0]:
@@ -744,7 +839,7 @@ if settings.ENTRY_ID:
                         f"{cap['recommended_points']:.1f} predicted vs. {cap['current_points']:.1f} for "
                         f"{cap['current_name']}, currently armbanded.",
                     )
-                st.iframe(tile, height=110)
+                show_tile(tile, height=110)
             with action_cols[1]:
                 if not changes["bring_in_codes"] and not changes["bench_out_codes"]:
                     tile = render_action_tile_html(
@@ -756,13 +851,13 @@ if settings.ENTRY_ID:
                         "attention", f"+{gain:.1f} pts available in your lineup",
                         "See the highlighted swap on the pitch above.",
                     )
-                st.iframe(tile, height=110)
+                show_tile(tile, height=110)
 
             st.divider()
             st.markdown("#### Recommended transfer")
             plan, _, remaining_bank = suggest_transfer_plan(squad, rankings, bank, free_transfers)
             if plan.empty:
-                st.iframe(
+                show_tile(
                     render_action_tile_html("good", "No transfer recommended", "Your squad already looks efficient."),
                     height=110,
                 )
@@ -770,8 +865,8 @@ if settings.ENTRY_ID:
                 top = plan.iloc[0]
                 sell_row = squad[squad["web_name"] == top["sell"]].iloc[0]
                 buy_row = rankings[rankings["web_name"] == top["buy"]].iloc[0]
-                st.iframe(render_transfer_card_html(sell_row, buy_row), height=140)
-                st.iframe(
+                show_tile(render_transfer_card_html(sell_row, buy_row), height=140)
+                show_tile(
                     render_stat_tile_html("Net gain, after any hit", f"{top['net']:+.1f} pts", accent=STATUS_GOOD),
                     height=96,
                 )
@@ -800,6 +895,11 @@ if settings.ENTRY_ID:
                             "hit": "Hit cost", "net": "Net gain", "free_transfer_used": "Free transfer",
                         }),
                         width="stretch", hide_index=True,
+                        column_config={
+                            "Predicted gain": st.column_config.NumberColumn(format="%.1f pts"),
+                            "Hit cost": st.column_config.NumberColumn(format="%d pts"),
+                            "Net gain": st.column_config.NumberColumn(format="%+.1f pts"),
+                        },
                     )
                     st.caption(f"Bank after this plan: £{plan_remaining_bank:.1f}m")
 
@@ -819,22 +919,20 @@ if settings.ENTRY_ID:
                 ("P(80+ pts)", f"{sim_stats['p_beat_80']:.0%}", TEXT_PRIMARY),
             ]):
                 with col:
-                    st.iframe(render_stat_tile_html(label, value, accent=accent), height=118)
+                    show_tile(render_stat_tile_html(label, value, accent=accent), height=118)
 
             fig, ax = plt.subplots(figsize=(8, 3))
-            fig.patch.set_facecolor(BG)
-            ax.set_facecolor(BG)
-            ax.hist(sim_totals, bins=50, color="#3B82F6", alpha=0.85, edgecolor="none")
+            style_chart(fig, ax)
+            ax.hist(sim_totals, bins=50, color=SERIES_MODEL, alpha=0.85, edgecolor="none")
+            # Headroom above the tallest bar, so the p10/median/p90 labels sit clear of it.
+            ax.set_ylim(top=ax.get_ylim()[1] * 1.12)
             for pct, label, color in [(10, "p10", TEXT_MUTED), (50, "median", TEXT_PRIMARY), (90, "p90", TEXT_MUTED)]:
                 x = np.percentile(sim_totals, pct)
                 ax.axvline(x, color=color, linestyle="--", linewidth=1)
                 ax.text(x, ax.get_ylim()[1] * 0.95, label, color=color, fontsize=9, ha="center")
-            ax.set_xlabel("Simulated starting XI points (captain doubled)", color=TEXT_MUTED)
-            ax.tick_params(colors=TEXT_MUTED)
+            ax.set_xlabel("Simulated starting XI points (captain doubled)")
             ax.set_yticks([])
-            for spine in ("top", "right", "left"):
-                ax.spines[spine].set_visible(False)
-            ax.spines["bottom"].set_color(CARD_BORDER)
+            ax.spines["left"].set_visible(False)
             plt.tight_layout()
             st.pyplot(fig)
             st.caption("See the **Season** tab for gameweek-by-gameweek history against this model's own predictions.")
@@ -852,20 +950,20 @@ if settings.ENTRY_ID:
 
             stat_cols = st.columns(4)
             with stat_cols[0]:
-                st.iframe(render_stat_tile_html(
+                show_tile(render_stat_tile_html(
                     "Total points", str(int(latest["total_points"])),
                     sublabel=f"GW average {manager_gw['points'].mean():.1f}",
                 ), height=118)
             with stat_cols[1]:
                 rank_str = f"{int(latest['overall_rank']):,}" if pd.notna(latest["overall_rank"]) else "—"
-                st.iframe(render_stat_tile_html("Overall rank", rank_str), height=118)
+                show_tile(render_stat_tile_html("Overall rank", rank_str), height=118)
             with stat_cols[2]:
-                st.iframe(render_stat_tile_html(
+                show_tile(render_stat_tile_html(
                     "Best gameweek", str(int(best_gw["points"])), sublabel=f"GW{int(best_gw['event_id'])}",
                     accent=STATUS_GOOD,
                 ), height=118)
             with stat_cols[3]:
-                st.iframe(render_stat_tile_html(
+                show_tile(render_stat_tile_html(
                     "Points left on bench", str(int(manager_gw["points_on_bench"].sum())),
                     sublabel=f"Across {len(manager_gw)} gameweek(s)", accent=STATUS_WARNING,
                 ), height=118)
@@ -881,19 +979,15 @@ if settings.ENTRY_ID:
                 st.info("No gameweek history ingested yet.")
             else:
                 fig, ax = plt.subplots(figsize=(9, 3.5))
-                fig.patch.set_facecolor(BG)
-                ax.set_facecolor(BG)
+                style_chart(fig, ax)
                 ax.plot(comparison["gw_name"], comparison["actual_points"], color=CAPTAIN_BADGE,
                         linewidth=2.5, marker="o", markersize=4, label="Actual")
-                ax.plot(comparison["gw_name"], comparison["model_predicted_points"], color="#3B82F6",
+                ax.plot(comparison["gw_name"], comparison["model_predicted_points"], color=SERIES_MODEL,
                         linewidth=2, marker="o", markersize=3, label="This model")
                 ax.plot(comparison["gw_name"], comparison["epl_predicted_points"], color=TEXT_MUTED,
                         linewidth=2, linestyle="--", marker="o", markersize=3, label="FPL's own")
-                ax.set_ylabel("Points", color=TEXT_MUTED)
-                ax.tick_params(colors=TEXT_MUTED)
-                for spine in ax.spines.values():
-                    spine.set_color(CARD_BORDER)
-                legend = ax.legend(facecolor=CARD_BG, edgecolor=CARD_BORDER, labelcolor=TEXT_PRIMARY, fontsize=9)
+                ax.set_ylabel("Points")
+                ax.legend(facecolor=CARD_BG, edgecolor=CARD_BORDER, labelcolor=TEXT_PRIMARY, fontsize=9)
                 plt.tight_layout()
                 st.pyplot(fig)
 
@@ -901,7 +995,7 @@ if settings.ENTRY_ID:
                 insight_cols = st.columns(2)
                 if valid.empty:
                     with insight_cols[0]:
-                        st.iframe(render_action_tile_html(
+                        show_tile(render_action_tile_html(
                             "good", "Not enough gameweeks yet",
                             "Model-accuracy comparisons need at least one gameweek with a pre-deadline prediction.",
                         ), height=110)
@@ -910,7 +1004,7 @@ if settings.ENTRY_ID:
                     epl_err = (valid["actual_points"] - valid["epl_predicted_points"]).abs()
                     beats = int((model_err < epl_err).sum())
                     with insight_cols[0]:
-                        st.iframe(render_action_tile_html(
+                        show_tile(render_action_tile_html(
                             "good" if model_err.mean() < epl_err.mean() else "attention",
                             f"Beating FPL's own projection {beats} of {len(valid)} weeks",
                             f"Mean error {model_err.mean():.1f} pts/GW vs. their {epl_err.mean():.1f}.",
@@ -918,7 +1012,7 @@ if settings.ENTRY_ID:
                     with insight_cols[1]:
                         miss = valid.loc[(valid["actual_points"] - valid["model_predicted_points"]).idxmax()]
                         miss_gap = miss["actual_points"] - miss["model_predicted_points"]
-                        st.iframe(render_action_tile_html(
+                        show_tile(render_action_tile_html(
                             "attention", f"{miss['gw_name']}: biggest miss this season",
                             f"Predicted {miss['model_predicted_points']:.0f}, actual {miss['actual_points']:.0f} "
                             f"({miss_gap:+.0f}) — the model hedges toward the mean by design.",
@@ -929,12 +1023,11 @@ if settings.ENTRY_ID:
                     st.info("No gameweek history ingested yet.")
                 else:
                     display = comparison.copy()
-                    display["Δ vs Model"] = (display["actual_points"] - display["model_predicted_points"]).apply(
-                        lambda v: f"{v:+.1f}" if pd.notna(v) else "—"
-                    )
-                    display["Overall Percentile"] = display["percentile"].apply(
-                        lambda v: f"Top {v:.0f}%" if pd.notna(v) else "—"
-                    )
+                    # Kept numeric (formatted by column_config below, not pre-baked into strings)
+                    # so the columns right-align and sort as numbers; a gameweek with no
+                    # prediction stays blank, never 0.
+                    display["Δ vs Model"] = display["actual_points"] - display["model_predicted_points"]
+                    display["Overall Percentile"] = display["percentile"]
                     st.dataframe(
                         display[[
                             "gw_name", "model_predicted_points", "epl_predicted_points", "actual_points",
@@ -945,6 +1038,13 @@ if settings.ENTRY_ID:
                             "gw_average": "Gameweek Average", "gw_highest": "Gameweek Highest",
                         }),
                         width="stretch", hide_index=True,
+                        column_config={
+                            "Model Prediction": st.column_config.NumberColumn(format="%.1f"),
+                            "FPL Prediction": st.column_config.NumberColumn(format="%.1f"),
+                            "Δ vs Model": st.column_config.NumberColumn(format="%+.1f"),
+                            "Gameweek Average": st.column_config.NumberColumn(format="%.0f"),
+                            "Overall Percentile": st.column_config.NumberColumn(format="Top %.0f%%"),
+                        },
                     )
 
 with tab_players:
@@ -998,9 +1098,11 @@ with tab_players:
             )
             for _, r in top_rows.iterrows()
         )
-        st.iframe(
+        show_tile(
             f'<div style="display:flex;flex-direction:column;gap:10px;">{rows_html}</div>',
             height=72 * len(top_rows) + 10 * (len(top_rows) - 1) + 20,
+            alt=f"Top {len(top_rows)} players sorted by {sort_choice}, with predicted points, "
+                "floor-to-ceiling range and ceiling probability. Full table below.",
         )
     st.caption(
         "Predicted/floor/ceiling bars share one 0–12pt scale (a real player's ceiling can run "
@@ -1027,6 +1129,17 @@ with tab_players:
                 "total_points": "Total pts", "selected_by_percent": "Owned %", "status": "Status",
             }),
             width="stretch", height=500,
+            column_config={
+                "Price (£m)": st.column_config.NumberColumn(format="£%.1fm"),
+                "Predicted (next GW)": st.column_config.NumberColumn(format="%.1f"),
+                f"Predicted (next {DEFAULT_HORIZON} GWs)": st.column_config.NumberColumn(format="%.1f"),
+                # p_haul_10plus is a 0-1 probability; without this the "Ceiling %" column
+                # showed 0.23 where the row above it says 23%.
+                "Ceiling %": st.column_config.NumberColumn(format="percent"),
+                "Predicted pts/£m": st.column_config.NumberColumn(format="%.2f"),
+                "Owned %": st.column_config.NumberColumn(format="%.1f%%"),
+                "Floor–Ceiling": st.column_config.TextColumn(alignment="right"),
+            },
         )
 
 with tab_fixtures:
@@ -1053,7 +1166,12 @@ with tab_fixtures:
         gw_cols = sorted(grid["event_id"].unique())
 
         def _cell(rows: pd.DataFrame) -> tuple[str, float]:
-            opp_label = " + ".join(f"{r['opponent']} ({'H' if r['is_home'] else 'A'})" for _, r in rows.iterrows())
+            # The 1-5 grade is written into the cell, not just shown as its color, so the grid
+            # still reads for a color-blind user or in a screenshot pasted into a group chat.
+            opp_label = " + ".join(
+                f"{r['opponent']} ({'H' if r['is_home'] else 'A'}) · {fixture_grade(r['fixture_difficulty_score'])}"
+                for _, r in rows.iterrows()
+            )
             return opp_label, rows["fixture_difficulty_score"].mean()
 
         grid_rows = []
@@ -1095,34 +1213,43 @@ with tab_fixtures:
                     styles.append("")
                     continue
                 gw = int(col.replace("GW", ""))
-                score = score_lookup.get((row["Team"], gw))
-                if score is None or pd.isna(score):
+                grade = fixture_grade(score_lookup.get((row["Team"], gw)))
+                if grade is None:
                     styles.append(f"background-color:{CARD_BG};color:{TEXT_MUTED};")
-                elif score <= -0.35:
-                    styles.append(f"background-color:{STATUS_GOOD};color:{BG};font-weight:600;")
-                elif score <= -0.1:
-                    styles.append(f"background-color:#15803D;color:{TEXT_PRIMARY};font-weight:600;")
-                elif score <= 0.1:
-                    styles.append(f"background-color:{CARD_BORDER};color:{TEXT_PRIMARY};")
-                elif score <= 0.35:
-                    styles.append(f"background-color:{STATUS_WARNING};color:{BG};font-weight:600;")
                 else:
-                    styles.append(f"background-color:{CAPTAIN_BADGE};color:#fff;font-weight:600;")
+                    _, background, text = FIXTURE_SCALE[grade - 1]
+                    weight = "" if grade == 3 else "font-weight:600;"
+                    styles.append(f"background-color:{background};color:{text};{weight}")
             return styles
 
         styled = grid_df[display_cols].style.apply(_style_row, axis=1, subset=display_cols)
-        st.dataframe(styled, width="stretch", hide_index=True, height=(len(grid_df) + 1) * 38)
+        # 33px rows + header + 3px border: Streamlit's own row height, so no empty filler rows show.
+        st.dataframe(styled, width="stretch", hide_index=True, height=(len(grid_df) + 1) * 33 + 3)
+        swatches = "".join(
+            f'<span style="display:inline-flex;align-items:center;gap:6px;margin-right:14px;">'
+            f'<span style="display:inline-block;width:22px;height:18px;border-radius:4px;background:{background};'
+            f'color:{text};font-size:12px;font-weight:600;text-align:center;line-height:18px;">{label}</span>'
+            f'{name}</span>'
+            for (label, background, text), name in zip(
+                FIXTURE_SCALE, ["easiest", "easy", "neutral", "hard", "hardest"]
+            )
+        )
+        st.markdown(
+            f'<div style="font-size:13px;color:{TEXT_MUTED};margin:-4px 0 12px;">'
+            f'Difficulty: {swatches}</div>',
+            unsafe_allow_html=True,
+        )
 
         best_team = grid_df.iloc[0]
         worst_team = grid_df.iloc[-1]
         insight_cols = st.columns(2)
         with insight_cols[0]:
-            st.iframe(render_action_tile_html(
+            show_tile(render_action_tile_html(
                 "good", f"{best_team['Team']}: best run in the window",
                 f"Lowest average fixture difficulty over the next {DEFAULT_HORIZON} gameweeks.",
             ), height=110)
         with insight_cols[1]:
-            st.iframe(render_action_tile_html(
+            show_tile(render_action_tile_html(
                 "attention", f"{worst_team['Team']}: hardest run in the window",
                 f"Highest average fixture difficulty over the next {DEFAULT_HORIZON} gameweeks.",
             ), height=110)
@@ -1171,12 +1298,12 @@ with tab_optimal:
 
         stat_cols = st.columns(3 if settings.ENTRY_ID else 2)
         with stat_cols[0]:
-            st.iframe(render_stat_tile_html(
+            show_tile(render_stat_tile_html(
                 "Projected XI points", f"{opt_objective:.1f}", sublabel="Captain doubled", accent=STATUS_GOOD,
             ), height=124)
         with stat_cols[1]:
             spend = opt_squad["price"].sum()
-            st.iframe(render_stat_tile_html(
+            show_tile(render_stat_tile_html(
                 "Spend", f"£{spend:.1f}m", sublabel=f"£{budget - spend:.1f}m unspent",
             ), height=124)
 
@@ -1190,20 +1317,21 @@ with tab_optimal:
                 actual_xi, _ = best_starting_xi(actual_squad, value_col=opt_value_col)
                 actual_total = actual_xi[opt_value_col].sum()
                 with stat_cols[2]:
-                    st.iframe(render_stat_tile_html(
+                    show_tile(render_stat_tile_html(
                         "Your squad, same basis", f"{actual_total:.1f}",
                         sublabel=f"{opt_objective - actual_total:+.1f} vs. this squad", accent=STATUS_WARNING,
                     ), height=124)
 
         st.markdown("#### The solver's XI")
-        st.iframe(render_pitch_html(opt_starting, set(), value_col=opt_value_col), height=500)
+        opt_pitch_html = render_pitch_html(opt_starting, set(), value_col=opt_value_col)
+        show_tile(opt_pitch_html, height=540, alt="The solver's starting XI on a pitch: " + _tile_text(opt_pitch_html))
         if not opt_bench.empty:
-            st.iframe(render_bench_html(opt_bench, set(), value_col=opt_value_col), height=120)
+            show_tile(render_bench_html(opt_bench, set(), value_col=opt_value_col), height="content")
 
         if settings.ENTRY_ID and not actual_squad.empty:
             overlap = set(opt_squad["player_code"]) & set(actual_squad["player_code"])
             transfers_needed = 15 - len(overlap)
-            st.iframe(render_action_tile_html(
+            show_tile(render_action_tile_html(
                 "good" if transfers_needed == 0 else "attention",
                 f"{len(overlap)} of your 15 already match this squad",
                 "Your squad already matches." if transfers_needed == 0 else
@@ -1233,12 +1361,16 @@ with tab_model_lab:
         numeric_features = [c for c in all_features if not c.startswith("pos_")]
         corr = lab_df[numeric_features].corr()
         fig, ax = plt.subplots(figsize=(11, 9))
+        style_chart(fig, ax)
         im = ax.imshow(corr, cmap="RdBu_r", vmin=-1, vmax=1)
         ax.set_xticks(range(len(numeric_features)))
         ax.set_xticklabels(numeric_features, rotation=90, fontsize=6)
         ax.set_yticks(range(len(numeric_features)))
         ax.set_yticklabels(numeric_features, fontsize=6)
-        fig.colorbar(im, ax=ax, shrink=0.8, label="Pearson correlation")
+        cbar = fig.colorbar(im, ax=ax, shrink=0.8)
+        cbar.set_label("Pearson correlation", color=TEXT_MUTED)
+        cbar.ax.tick_params(colors=TEXT_MUTED)
+        cbar.outline.set_edgecolor(CARD_BORDER)
         st.pyplot(fig)
         st.caption(
             "Feature-to-feature correlation, computed once on the cached training frame - a "
@@ -1365,7 +1497,8 @@ with tab_model_lab:
                 st.markdown(f"**{model_type} feature importance**")
                 imp = pd.Series(model.feature_importances_, index=selected).sort_values(ascending=False).head(15)
                 fig, ax = plt.subplots(figsize=(5, 4))
-                ax.barh(imp.index[::-1], imp.values[::-1])
+                style_chart(fig, ax)
+                ax.barh(imp.index[::-1], imp.values[::-1], color=SERIES_MODEL)
                 ax.set_xlabel("Importance")
                 st.pyplot(fig)
 
@@ -1416,8 +1549,7 @@ with tab_model_lab:
 
 st.divider()
 st.caption(
-    "Predictions come from a Random Forest model trained on 3 historical seasons; see "
-    "notebooks/06_model_comparison.ipynb for backtested accuracy. Squad optimization / "
-    "auto-substitution and full transfer-in-out comparisons are Phase 5 (decision engine), "
-    "not built yet."
+    f"Predictions come from a Random Forest model trained on {len(TRAIN_SEASONS)} historical seasons "
+    f"({TRAIN_SEASONS[0]} to {TRAIN_SEASONS[-1]}) and tested on {TEST_SEASON}; see "
+    "notebooks/06_model_comparison.ipynb for backtested accuracy."
 )
