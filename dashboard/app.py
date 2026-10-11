@@ -20,6 +20,7 @@ import pandas as pd
 import streamlit as st
 
 from config import settings
+from dashboard.hairdryer import build_calls, render_hairdryer_html
 from src.features.historical_features import FEATURE_COLS as ALL_HISTORICAL_FEATURE_COLS
 from src.features.historical_features import build_training_frame
 from src.ingestion.db import get_connection, get_engine
@@ -816,6 +817,18 @@ if settings.ENTRY_ID:
 
             cap = captain_recommendation(starting)
             changes = lineup_changes(squad)
+            plan, _, remaining_bank = suggest_transfer_plan(squad, rankings, bank, free_transfers)
+
+            # The hairdryer replaces the separate captain/lineup tiles: every call for the week in
+            # one place, hotter the more predicted points are still on the table.
+            calls = build_calls(cap, changes, squad, starting, plan)
+            show_tile(
+                render_hairdryer_html(calls, deadline["event_id"] if deadline is not None else None, FONT_CSS),
+                height="content",
+                alt="Hairdryer: this week's calls - " + "; ".join(
+                    c["title"] + (" (done)" if c["done"] else f" (+{c['gain']:.1f} pts)") for c in calls
+                ),
+            )
 
             st.markdown("#### Your team")
             pitch_html = render_pitch_html(starting, changes["bench_out_codes"])
@@ -823,39 +836,8 @@ if settings.ENTRY_ID:
             if not bench.empty:
                 show_tile(render_bench_html(bench, changes["bring_in_codes"]), height="content")
 
-            action_cols = st.columns(2)
-            with action_cols[0]:
-                if cap is None:
-                    tile = render_action_tile_html(
-                        "good", "Captain recommendation unavailable", "No prediction for this gameweek yet."
-                    )
-                elif cap["matches"]:
-                    tile = render_action_tile_html(
-                        "good", f"Captain: {cap['current_name']}", "Already the model's top pick in your XI."
-                    )
-                else:
-                    tile = render_action_tile_html(
-                        "attention", f"Switch captain to {cap['recommended_name']}",
-                        f"{cap['recommended_points']:.1f} predicted vs. {cap['current_points']:.1f} for "
-                        f"{cap['current_name']}, currently armbanded.",
-                    )
-                show_tile(tile, height=110)
-            with action_cols[1]:
-                if not changes["bring_in_codes"] and not changes["bench_out_codes"]:
-                    tile = render_action_tile_html(
-                        "good", "Lineup is optimal", "No swap improves this formation and squad."
-                    )
-                else:
-                    gain = changes["optimal_points"] - starting["predicted_points"].sum()
-                    tile = render_action_tile_html(
-                        "attention", f"+{gain:.1f} pts available in your lineup",
-                        "See the highlighted swap on the pitch above.",
-                    )
-                show_tile(tile, height=110)
-
             st.divider()
             st.markdown("#### Recommended transfer")
-            plan, _, remaining_bank = suggest_transfer_plan(squad, rankings, bank, free_transfers)
             if plan.empty:
                 show_tile(
                     render_action_tile_html("good", "No transfer recommended", "Your squad already looks efficient."),
