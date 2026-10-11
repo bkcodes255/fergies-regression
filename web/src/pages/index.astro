@@ -1,0 +1,57 @@
+---
+import Base from "../layouts/Base.astro";
+import Board from "../components/Board.astro";
+import Hairdryer from "../components/Hairdryer.astro";
+import Transfers from "../components/Transfers.astro";
+import Outcomes from "../components/Outcomes.astro";
+import PlayerSheet from "../components/PlayerSheet.astro";
+import { data } from "../lib/data";
+const s = data.squad;
+---
+<Base title="This Week" active="This Week">
+  {data.last_gw !== null && data.last_gw <= 2 && (
+    <p class="card note">
+      Early season ({data.last_gw} gameweek{data.last_gw === 1 ? "" : "s"} in) - rolling form and fixture difficulty are still
+      thin-sample and will sharpen as more gameweeks come in.
+    </p>
+  )}
+  {s ? (
+    <>
+      <div class="talk">
+        <Board now={s.board} after={s.after_board} calls={s.board_calls}
+          caption="Magnets show predicted points for the coming gameweek; C and V are your captain and vice. Tap one for the player's card." />
+        <aside aria-label="This week's numbers and calls">
+          <div class="mini">
+            <div class="card stat"><p class="lbl">Free transfers</p><p class="val">{s.free_transfers}</p></div>
+            <div class="card stat"><p class="lbl">Bank</p><p class="val">£{s.bank.toFixed(1)}m</p></div>
+          </div>
+          <Hairdryer calls={s.calls} gameweek={data.deadline?.event_id ?? null} full={data.full_blast} />
+        </aside>
+      </div>
+      <hr />
+      <Transfers plans={s.plans} horizon={data.horizon} />
+      <hr />
+      <Outcomes o={s.outcomes} />
+      <PlayerSheet players={s.players} horizon={data.horizon} />
+    </>
+  ) : (
+    <div class="card empty">
+      <h2>No squad yet</h2>
+      <p class="muted">There's no FPL squad in the database to talk about. Once the data refresh has loaded your team, it appears here.</p>
+    </div>
+  )}
+</Base>
+
+<style>
+  .note { padding: 14px 16px; color: var(--muted); margin-bottom: 18px; }
+  .talk { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(300px, 1fr); gap: clamp(18px, 2.4vw, 32px); align-items: start; }
+  @media (max-width: 980px) { .talk { grid-template-columns: minmax(0, 1fr); } }
+  aside { display: grid; gap: 14px; }
+  @media (min-width: 981px) { aside { margin-top: 50px; } }
+  .mini { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .stat { padding: 12px 16px; }
+  .lbl { font-size: 13px; color: var(--muted); }
+  .val { font: 800 34px/1.05 var(--display); }
+  hr { border: 0; border-top: 1px solid var(--line); margin: clamp(32px, 5vw, 56px) 0; }
+  .empty { padding: 28px; display: grid; gap: 8px; }
+</style>

@@ -1,0 +1,75 @@
+---
+import "@fontsource/barlow/400";
+import "@fontsource/barlow/600";
+import "@fontsource/barlow/700";
+import "@fontsource/big-shoulders-display/800";
+import "@fontsource/big-shoulders-display/900";
+import "@fontsource/permanent-marker/400";
+import "@fontsource/anton/400";
+import "../styles/global.css";
+import BroadcastBar from "../components/BroadcastBar.astro";
+import { data, isSample } from "../lib/data";
+
+interface Props { title: string; active: string }
+const { title, active } = Astro.props;
+// The tabs not ported yet link to the Streamlit app while it's still the home for them.
+const legacy = import.meta.env.PUBLIC_STREAMLIT_URL as string | undefined;
+const tabs = ["This Week", "Players", "Fixtures", "Season", "Optimal Squad", "Model Lab"];
+---
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#0B0F0D" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>{title} · Fergie's Regression</title>
+  </head>
+  <body>
+    <header class="wrap top">
+      <BroadcastBar />
+      <nav aria-label="Sections">
+        <ul>
+          {tabs.map((t) => t === active
+            ? <li><a href="/" aria-current="page">{t}</a></li>
+            : legacy ? <li><a href={legacy} class="legacy">{t}<span aria-hidden="true"> ↗</span><span class="sr-only"> (in the Streamlit app)</span></a></li> : null)}
+        </ul>
+      </nav>
+      {isSample && (
+        <p class="sample" role="note">Sample data: this build has no live export, so the squad below is the test fixture, not yours.</p>
+      )}
+    </header>
+    <main class="wrap"><slot /></main>
+    <footer class="wrap foot">
+      <p class="muted">
+        Predictions from this project's own model, refreshed with each data update
+        (<time datetime={data.generated_at} data-ago>{data.generated_at.slice(0, 16).replace("T", " ")} UTC</time>).
+      </p>
+      <a href="/cdn-cgi/access/logout">Sign out</a>
+    </footer>
+    <script>
+      // "updated 2h ago" - relative to the reader's clock, so it stays honest between deploys.
+      for (const t of document.querySelectorAll<HTMLTimeElement>("time[data-ago]")) {
+        const mins = Math.round((Date.now() - Date.parse(t.dateTime)) / 60000);
+        t.textContent = mins < 1 ? "updated just now" : mins < 60 ? `updated ${mins}m ago`
+          : mins < 2880 ? `updated ${Math.round(mins / 60)}h ago` : `updated ${Math.round(mins / 1440)} days ago`;
+      }
+    </script>
+  </body>
+</html>
+
+<style>
+  .top { padding-top: clamp(14px, 3vw, 28px); }
+  nav ul { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 20px;
+    border-bottom: 1px solid var(--line); }
+  nav a { display: inline-block; padding: 6px 0 9px; font: 800 19px/1 var(--display); text-transform: uppercase;
+    letter-spacing: .04em; color: var(--muted); text-decoration: none; border-bottom: 3px solid transparent; margin-bottom: -1px; }
+  nav a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--marker); }
+  nav a:hover { color: var(--ink); }
+  .legacy span[aria-hidden] { font-family: var(--text); font-size: 13px; }
+  .sample { margin-top: 12px; padding: 10px 14px; border-radius: 10px; background: #3a3413; color: var(--marker); font-weight: 600; font-size: 14px; }
+  main { padding-top: clamp(16px, 2.5vw, 24px); }
+  .foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding-top: 28px; padding-bottom: 40px;
+    margin-top: 48px; border-top: 1px solid var(--line); font-size: 13px; }
+</style>

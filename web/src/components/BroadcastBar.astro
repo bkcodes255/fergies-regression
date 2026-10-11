@@ -1,0 +1,53 @@
+---
+import { data, ukTime } from "../lib/data";
+const gw = data.deadline ? `GW${data.deadline.event_id}` : "—";
+const meta = [data.season, data.predicted_gw && `predictions for GW${data.predicted_gw}`, data.last_gw && `data to GW${data.last_gw}`]
+  .filter(Boolean).join(" · ");
+const label = data.deadline ? `Deadline · ${ukTime(data.deadline.time)}` : "No upcoming deadline";
+---
+<div class="bar" role="banner">
+  <div class="gw">{gw}</div>
+  <div class="title"><h1>Fergie's Regression · Team talk</h1><span>{meta}</span></div>
+  <div class="clock" data-deadline={data.deadline?.time ?? ""}>
+    <small>{label}</small>
+    <b aria-live="off">—</b>
+  </div>
+</div>
+
+<script>
+  // Days/hours/minutes, then a seconds-level countdown in the final hour - the broadcast clock.
+  const clock = document.querySelector<HTMLElement>(".bar .clock")!;
+  const out = clock.querySelector("b")!;
+  const deadline = clock.dataset.deadline ? Date.parse(clock.dataset.deadline) : null;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  function tick() {
+    if (deadline === null) { out.textContent = "—"; return; }
+    const s = Math.floor((deadline - Date.now()) / 1000);
+    if (s <= 0) { out.textContent = "Deadline passed"; clock.classList.add("over"); return; }
+    const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+    out.textContent = s < 3600 ? `${pad(m)}:${pad(s % 60)}` : `${d ? d + "D " : ""}${pad(h)}H ${pad(m)}M`;
+    clock.classList.toggle("final", s < 3600);
+    setTimeout(tick, s < 3600 ? 1000 : 1000 * (s % 60 || 60));
+  }
+  tick();
+</script>
+
+<style>
+  .bar { display: flex; flex-wrap: wrap; align-items: stretch; background: var(--bar); color: var(--studio); }
+  .gw { background: var(--disc); color: #fff; font: 900 32px/1 var(--display); padding: 12px 18px; display: grid; place-items: center; letter-spacing: .02em; }
+  .title { padding: 9px 18px; display: grid; align-content: center; flex: 1 1 260px; min-width: 0; }
+  h1 { font-size: 26px; font-weight: 900; }
+  .title span { font-size: 13px; font-weight: 600; color: #4b544e; }
+  .clock { background: var(--board); color: var(--bar); padding: 9px 20px; display: grid; align-content: center; justify-items: end; }
+  .clock small { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--marker); }
+  .clock b { font: 800 32px/1 var(--display); letter-spacing: .02em; text-transform: uppercase; }
+  .clock.final { background: var(--disc); }
+  .clock.final small { color: #fff; }
+  .clock.over b { font-size: 24px; }
+  @media (max-width: 560px) {
+    .clock { flex: 1 1 100%; justify-items: start; }
+    .gw { font-size: 26px; padding: 10px 13px; }
+    .title { padding: 7px 12px; }
+    h1 { font-size: 20px; }
+  }
+</style>

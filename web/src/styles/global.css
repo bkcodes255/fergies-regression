@@ -1,0 +1,58 @@
+/* Team Talk: a dark TV studio around a magnetic tactics board. One theme on purpose - the
+   board and the broadcast graphics are the brand, so there is no light mode to drift from it.
+   dashboard/team_talk.py and .streamlit/config.toml carry the same values while both apps run. */
+:root {
+  color-scheme: dark;
+  --studio: #0B0F0D;      /* page ground */
+  --surface: #111A15;     /* panels */
+  --surface-2: #17231C;
+  --line: #24352B;
+  --ink: #F2F5F0;
+  --muted: #A9B8AE;
+  --board: #14402A;
+  --board-edge: #0E2D1E;
+  --disc: #D7263D;        /* your magnets; the brand red, a fill - never body text */
+  --marker: #FFE14D;      /* the gaffer's marker */
+  --bar: #F4F4EF;         /* broadcast lower-third */
+  --good: #7BE495;
+
+  --display: "Big Shoulders Display", "Arial Narrow", sans-serif;
+  --text: "Barlow", system-ui, -apple-system, sans-serif;
+  --hand: "Permanent Marker", cursive;
+  --shout: "Anton", Impact, "Arial Narrow", sans-serif;
+
+  --gutter: clamp(16px, 3vw, 32px);
+  --radius: 14px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--studio); color: var(--ink);
+  font: 400 16px/1.5 var(--text); font-variant-numeric: tabular-nums;
+}
+h1, h2, h3 { font-family: var(--display); text-transform: uppercase; letter-spacing: .02em; line-height: 1.05; margin: 0; }
+h2 { font-size: clamp(26px, 4vw, 34px); font-weight: 900; }
+p { margin: 0; }
+a { color: var(--marker); }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--marker); outline-offset: 3px; }
+[hidden] { display: none !important; }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 0 var(--gutter); }
+.eyebrow { font: 700 12px/1.2 var(--text); letter-spacing: .12em; text-transform: uppercase; color: var(--marker); }
+.muted { color: var(--muted); }
+.disp { font-family: var(--display); font-weight: 800; letter-spacing: .01em; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Segmented control: radios styled as a two-way switch, so it works before (and without) JS. */
+.seg { display: inline-flex; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 3px; gap: 2px; }
+.seg label { position: relative; padding: 6px 14px; border-radius: 999px; cursor: pointer; font: 700 13px/1.2 var(--text);
+  letter-spacing: .04em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.seg label:has(input:checked) { background: var(--marker); color: var(--studio); }
+.seg label:has(input:focus-visible) { outline: 3px solid var(--marker); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition-duration: 0s !important; }
+}
