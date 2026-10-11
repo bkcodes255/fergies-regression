@@ -21,6 +21,7 @@ import streamlit as st
 
 from config import settings
 from dashboard.hairdryer import build_calls, render_hairdryer_html
+from dashboard.team_talk import board_calls, board_data, render_board_html, render_broadcast_bar_html
 from src.features.historical_features import FEATURE_COLS as ALL_HISTORICAL_FEATURE_COLS
 from src.features.historical_features import build_training_frame
 from src.ingestion.db import get_connection, get_engine
@@ -53,15 +54,23 @@ st.markdown(
     div[data-testid="stTabs"] div[role="tablist"] [role="tab"] {
         white-space: nowrap;
     }
-    /* The brand red (#E11D2E) is fine as a fill but only 3.9:1 as text on this background -
-       under the 4.5:1 floor for body-size text - so the active tab keeps its red underline
-       but its label uses the primary text color. */
+    /* Team Talk nav: broadcast-style uppercase labels, the gaffer's yellow marker under the
+       active one. Labels stay in the primary text color - the red is a fill, not a text color. */
+    div[data-testid="stTabs"] [role="tab"] p {
+        font-family: 'Big Shoulders Display', 'Arial Narrow', sans-serif;
+        font-weight: 800; font-size: 18px; text-transform: uppercase; letter-spacing: .04em;
+        color: #A9B8AE;
+    }
     div[data-testid="stTabs"] [role="tab"][aria-selected="true"],
     div[data-testid="stTabs"] [role="tab"][aria-selected="true"] p {
-        color: #E6EDF3;
+        color: #F2F5F0;
     }
+    div[data-testid="stTabs"] .react-aria-SelectionIndicator {
+        background-color: #FFE14D !important;
+    }
+    h1, h2, h3, h4 { text-transform: uppercase; letter-spacing: .02em; }
     /* Numbers are content: tabular figures keep columns of points/prices aligned digit for
-       digit. Space Grotesk ships a tnum feature, so this changes widths, not the face. */
+       digit. Barlow ships a tnum feature, so this changes widths, not the face. */
     .stApp, .stApp * {
         font-variant-numeric: tabular-nums;
     }
@@ -289,19 +298,6 @@ def load_next_deadline(season: str) -> dict | None:
     return {"event_id": int(row["event_id"]), "name": row["name"], "deadline_time": row["deadline_time"]}
 
 
-def format_time_left(deadline_time) -> str:
-    delta = deadline_time - pd.Timestamp.now(tz="UTC")
-    total_seconds = delta.total_seconds()
-    if total_seconds <= 0:
-        return "deadline passed"
-    days, rem = divmod(int(total_seconds), 86400)
-    hours, rem = divmod(rem, 3600)
-    minutes = rem // 60
-    if days > 0:
-        return f"{days}d {hours}h"
-    return f"{hours}h {minutes}m"
-
-
 def format_deadline_local(deadline_time) -> str:
     """The deadline as a clock time, not just a countdown - FPL deadlines are set in UK time,
     so that is the time zone shown (e.g. "Sat 17 Oct, 11:00 UK time")."""
@@ -315,18 +311,17 @@ def format_deadline_local(deadline_time) -> str:
 # introduces a palette Streamlit's own chrome doesn't already use. Position colors deliberately
 # avoid green/orange/red - those are reserved for status (good/warning) and the captain badge -
 # so a position accent never collides with a status ring around the same player.
-BG = "#0F1420"
-CARD_BG = "#161B28"
-CARD_BORDER = "#232838"
-TEXT_PRIMARY = "#E6EDF3"
-TEXT_MUTED = "#8B94A8"
-CAPTAIN_BADGE = "#E11D2E"  # brand primary - the one thing on a pitch worth a bold color
-ON_ACCENT = "#FFFFFF"  # text/icons on a CAPTAIN_BADGE fill (4.75:1)
-STATUS_GOOD = "#22C55E"
-STATUS_WARNING = "#F59E0B"
-SERIES_MODEL = "#3B82F6"  # this model's own numbers in charts (blue, never the brand red)
-POSITION_ACCENT = {"GKP": "#8B94A8", "DEF": "#3B82F6", "MID": "#A855F7", "FWD": "#06B6D4"}
-PITCH_STRIPES = ("#1F9D4A", "#1C8F43")
+BG = "#0B0F0D"
+CARD_BG = "#111A15"
+CARD_BORDER = "#24352B"
+TEXT_PRIMARY = "#F2F5F0"
+TEXT_MUTED = "#A9B8AE"
+CAPTAIN_BADGE = "#D7263D"  # the magnets' red - brand primary
+ON_ACCENT = "#FFFFFF"  # text/icons on a CAPTAIN_BADGE fill (5.0:1)
+STATUS_GOOD = "#7BE495"
+STATUS_WARNING = "#FFE14D"  # the gaffer's marker yellow
+SERIES_MODEL = "#FFE14D"  # this model's own numbers in charts - marker yellow, never the brand red
+POSITION_ACCENT = {"GKP": "#A9B8AE", "DEF": "#5B9BF5", "MID": "#C084FC", "FWD": "#22D3EE"}
 # Fixture difficulty, easiest to hardest: (label, background, text). Every text/background
 # pair here is 4.5:1 or better - the middle-easy green used to be #15803D, which put the
 # light cell text at 4.2:1.
@@ -345,25 +340,25 @@ FIXTURE_SCALE = [
 # real font. Prepended to every returned HTML string below, not just declared once, because
 # each st.iframe call is a fully separate document.
 #
-# Space Grotesk, matching .streamlit/config.toml's font/headingFont - keep these two in sync;
-# this is the one place besides that file where the app's font is named. Picked over Inter
-# (the previous choice) for a more distinctive, stats-forward feel suited to a numbers-heavy
-# sports dashboard, per Brian's own call - Inter is functional but is the single most common
-# UI font around right now.
+# Barlow for text and Big Shoulders Display for figures and headings (the Team Talk pair), matching
+# .streamlit/config.toml's font/headingFont - keep the two in sync; this is the one place besides
+# that file where the app's fonts are named.
 #
 # The <link> loads as rel="preload" and only flips to rel="stylesheet" once it has actually
 # finished (the onload handler) - a PLAIN <link rel="stylesheet"> is render-blocking, so on a
 # slow connection, a captive network, or an ad/tracker blocker that holds up
 # fonts.googleapis.com, every tile would sit completely blank until that fetch resolved or
 # timed out. This way the tile paints immediately in the system font stack and upgrades to
-# Space Grotesk only if/when it loads - a real bug caught by testing this in a
+# the real fonts only if/when they load - a real bug caught by testing this in a
 # network-constrained sandbox, not a hypothetical.
 FONT_CSS = (
     '<link rel="preload" as="style" '
-    'href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" '
+    'href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&'
+    'family=Big+Shoulders+Display:wght@700;800;900&display=swap" '
     'onload="this.onload=null;this.rel=\'stylesheet\'">'
-    "<style>*{font-family:'Space Grotesk',system-ui,-apple-system,sans-serif;box-sizing:border-box;margin:0;"
-    "font-variant-numeric:tabular-nums;}</style>"
+    "<style>*{font-family:'Barlow',system-ui,-apple-system,sans-serif;box-sizing:border-box;margin:0;"
+    "font-variant-numeric:tabular-nums;}"
+    ".disp,.disp *{font-family:'Big Shoulders Display','Arial Narrow',sans-serif;font-weight:800;letter-spacing:.01em;}</style>"
 )
 
 
@@ -387,9 +382,13 @@ def style_chart(fig, ax) -> None:
     around it instead of as a white box - every st.pyplot chart goes through this."""
     fig.patch.set_facecolor(BG)
     ax.set_facecolor(BG)
-    ax.tick_params(colors=TEXT_MUTED)
+    # Small labels: st.pyplot stretches the figure to the column width, which scales text up
+    # with it - matplotlib's default 10pt read as oversized next to the page's 15px body text.
+    ax.tick_params(colors=TEXT_MUTED, labelsize=8)
     ax.xaxis.label.set_color(TEXT_MUTED)
     ax.yaxis.label.set_color(TEXT_MUTED)
+    ax.xaxis.label.set_fontsize(8.5)
+    ax.yaxis.label.set_fontsize(8.5)
     for name, spine in ax.spines.items():
         spine.set_visible(name in ("bottom", "left"))
         spine.set_color(CARD_BORDER)
@@ -440,7 +439,7 @@ def render_stat_tile_html(label: str, value: str, sublabel: str | None = None, a
                 overflow:hidden;">
       <div style="font-size:clamp(10px,3vw,12px);font-weight:500;color:{TEXT_MUTED};letter-spacing:0.02em;
                   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{label}</div>
-      <div style="font-size:clamp(16px,7vw,28px);font-weight:700;color:{accent};line-height:1.1;
+      <div class="disp" style="font-size:clamp(20px,8vw,34px);color:{accent};line-height:1;
                   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{value}</div>
       {sub}
     </div>
@@ -507,120 +506,6 @@ def _crest_data_uri(team_short_name: str | None) -> str | None:
         if path.exists():
             return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
     return None
-
-
-def _player_badge_html(name: str, points, position: str, size: int, is_captain: bool = False,
-                        is_vice: bool = False, swap_flag: str | None = None, team: str | None = None) -> str:
-    accent = POSITION_ACCENT.get(position, TEXT_MUTED)
-    points_str = f"{points:.1f} pts" if pd.notna(points) else "— pts"
-    ring = ""
-    footer = ""
-    if swap_flag == "start":
-        ring = f"box-shadow:0 0 0 3px {STATUS_GOOD};"
-        footer = f'<div style="font-size:10px;color:{STATUS_GOOD};font-weight:700;">&#9650; consider starting</div>'
-    elif swap_flag == "bench":
-        ring = f"box-shadow:0 0 0 3px {STATUS_WARNING};"
-        footer = f'<div style="font-size:10px;color:{STATUS_WARNING};font-weight:700;">&#9660; consider bench</div>'
-
-    badge = ""
-    if is_captain:
-        badge = (f'<div style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;'
-                  f'border-radius:50%;background:{CAPTAIN_BADGE};color:{ON_ACCENT};font-size:11px;'
-                  f'font-weight:800;display:flex;align-items:center;justify-content:center;'
-                  f'border:2px solid {BG};">C</div>')
-    elif is_vice:
-        badge = (f'<div style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;'
-                  f'border-radius:50%;background:{TEXT_MUTED};color:{BG};font-size:11px;'
-                  f'font-weight:800;display:flex;align-items:center;justify-content:center;'
-                  f'border:2px solid {BG};">V</div>')
-
-    crest = _crest_data_uri(team)
-    circle = (
-        f'<img src="{crest}" alt="" style="width:{size}px;height:{size}px;border-radius:50%;'
-        f'object-fit:cover;border:3px solid {accent};{ring}background:{CARD_BG};">'
-        if crest else
-        f'<div style="width:{size}px;height:{size}px;border-radius:50%;background:{CARD_BG};'
-        f'border:3px solid {accent};{ring}"></div>'
-    )
-
-    return f"""
-    {FONT_CSS}
-    <div style="text-align:center;width:{max(size + 34, 78)}px;">
-      <div style="position:relative;width:{size}px;height:{size}px;margin:0 auto;">
-        {circle}
-        {badge}
-      </div>
-      <div style="margin-top:4px;background:rgba(15,20,32,0.85);border-radius:8px;padding:3px 6px;">
-        <div style="color:{TEXT_PRIMARY};font-size:11px;font-weight:600;line-height:1.25;
-                    display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;">{name}</div>
-        <div style="color:{TEXT_PRIMARY};font-size:11px;font-weight:700;white-space:nowrap;">{points_str}</div>
-      </div>
-      {footer}
-    </div>
-    """
-
-
-def render_pitch_html(starting: pd.DataFrame, bench_out_codes: set, value_col: str = "predicted_points") -> str:
-    """An FPL-style pitch view of a starting XI (no external kit/crest images - those would
-    need FPL's own CDN, unnecessary and unavailable here). Position = a fixed accent color;
-    the captain gets a red armband badge; a lineup swap the model would make is called out
-    with BOTH a status-colored ring and a text label - never color alone, per the dataviz
-    skill's accessibility rule. value_col lets callers reuse this for either the next-GW
-    prediction or the fixture-weighted horizon total."""
-    # Rows sit far enough in from the edges that a whole card fits: a card is centered on its
-    # row and runs up to ~126px tall (2-line name plus a swap label), so the old 8% top row
-    # on a 480px pitch hung ~25px off the top edge.
-    row_top_pct = {"FWD": 12, "MID": 37, "DEF": 62, "GKP": 87}
-    cards = []
-    for pos in ("FWD", "MID", "DEF", "GKP"):
-        row_players = starting[starting["position"] == pos].reset_index(drop=True)
-        n = len(row_players)
-        for i, player in row_players.iterrows():
-            left_pct = (i + 0.5) / n * 100 if n else 50
-            swap_flag = "bench" if player["player_code"] in bench_out_codes else None
-            card = _player_badge_html(
-                player["web_name"], player.get(value_col), player["position"], size=48,
-                is_captain=bool(player.get("is_captain", False)), is_vice=bool(player.get("is_vice_captain", False)),
-                swap_flag=swap_flag, team=player.get("team"),
-            )
-            cards.append(
-                f'<div style="position:absolute;top:{row_top_pct[pos]}%;left:{left_pct}%;'
-                f'transform:translate(-50%,-50%);">{card}</div>'
-            )
-    return f"""
-    {FONT_CSS}
-    <div style="position:relative;width:100%;height:520px;border-radius:16px;overflow:hidden;
-                background:repeating-linear-gradient(180deg,{PITCH_STRIPES[0]} 0,{PITCH_STRIPES[0]} 48px,
-                           {PITCH_STRIPES[1]} 48px,{PITCH_STRIPES[1]} 96px);">
-      <div style="position:absolute;left:0;right:0;top:50%;height:2px;background:rgba(255,255,255,0.45);"></div>
-      <div style="position:absolute;left:50%;top:50%;width:100px;height:100px;
-                  border:2px solid rgba(255,255,255,0.45);border-radius:50%;transform:translate(-50%,-50%);"></div>
-      <div style="position:absolute;left:50%;top:0;width:180px;height:36px;
-                  border:2px solid rgba(255,255,255,0.45);border-top:none;transform:translateX(-50%);"></div>
-      <div style="position:absolute;left:50%;bottom:0;width:180px;height:36px;
-                  border:2px solid rgba(255,255,255,0.45);border-bottom:none;transform:translateX(-50%);"></div>
-      {''.join(cards)}
-    </div>
-    """
-
-
-def render_bench_html(bench: pd.DataFrame, bring_in_codes: set, value_col: str = "predicted_points") -> str:
-    items = []
-    for _, player in bench.iterrows():
-        swap_flag = "start" if player["player_code"] in bring_in_codes else None
-        items.append(_player_badge_html(
-            player["web_name"], player.get(value_col), player["position"], size=38,
-            is_vice=bool(player.get("is_vice_captain", False)), swap_flag=swap_flag, team=player.get("team"),
-        ))
-    return f"""
-    {FONT_CSS}
-    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;justify-content:center;
-                padding:16px 10px;background:{CARD_BG};border:1px solid {CARD_BORDER};
-                border-radius:12px;margin-top:12px;">
-      <div style="font-size:11px;color:{TEXT_MUTED};font-weight:700;align-self:center;">BENCH</div>
-      {''.join(items)}
-    </div>
-    """
 
 
 def render_transfer_card_html(sell_row: pd.Series, buy_row: pd.Series, value_col: str = "predicted_points") -> str:
@@ -718,8 +603,6 @@ def render_player_row_html(name: str, team: str, price: float, position: str, pr
 
 
 season = settings.SEASON
-st.title("Fergie's Regression")
-st.caption("An FPL Analytics Report")
 
 # A designed failure state instead of a raw traceback: the most common way this page fails is
 # simply not reaching Postgres (no .env yet, a paused database, the network), and the fix is
@@ -728,6 +611,7 @@ try:
     last_gw = load_last_ingested_gw(season)
     rankings = load_player_rankings(season)
 except Exception as exc:  # noqa: BLE001 - any failure here means no page can render
+    st.title("Fergie's Regression")
     st.error(
         "**Can't load data from the database.** Check that `DATABASE_URL` is set in `.env` "
         "(see `.env.example`) and that the database is running, then reload this page.",
@@ -738,18 +622,17 @@ except Exception as exc:  # noqa: BLE001 - any failure here means no page can re
 predicted_gw = rankings["predicted_gw"].dropna().max() if not rankings.empty else None
 rankings = with_horizon(rankings, season)
 
-# Same tile system as everything below the tabs - this used to be plain st.metric boxes and
-# an st.info banner, Streamlit's own default styling, which visually clashed with every tile
-# on every tab beneath it (two different design languages on one page, not one).
-header_cols = st.columns(3)
-with header_cols[0]:
-    show_tile(render_stat_tile_html("Season", season), height=96)
-with header_cols[1]:
-    show_tile(render_stat_tile_html("Last ingested gameweek", str(last_gw) if last_gw is not None else "—"), height=96)
-with header_cols[2]:
-    show_tile(render_stat_tile_html(
-        "Predictions for", f"GW{int(predicted_gw)}" if predicted_gw and pd.notna(predicted_gw) else "—",
-    ), height=96)
+# The broadcast bar tops every tab: gameweek, data freshness and a live deadline clock - the
+# Team Talk header, replacing the old title and three stat tiles.
+next_deadline = load_next_deadline(season)
+st.html(
+    render_broadcast_bar_html(
+        season, next_deadline, last_gw,
+        int(predicted_gw) if predicted_gw and pd.notna(predicted_gw) else None,
+        format_deadline_local(next_deadline["deadline_time"]) if next_deadline else None,
+    ),
+    unsafe_allow_javascript=True,
+)
 
 if last_gw is not None and last_gw <= 2:
     show_tile(render_info_banner_html(
@@ -783,47 +666,41 @@ if settings.ENTRY_ID:
             starting = squad[squad["multiplier"] > 0].copy()
             bench = squad[squad["multiplier"] == 0].copy()
 
-            header_cols = st.columns([2, 1, 1])
-            if deadline is not None:
-                header_cols[0].markdown(
-                    f"<div style='font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;"
-                    f"color:{TEXT_MUTED};margin-bottom:6px;'>{deadline['name']} deadline</div>"
-                    f"<div style='font-size:44px;font-weight:800;line-height:1;color:{TEXT_PRIMARY};'>"
-                    f"{format_time_left(deadline['deadline_time'])}</div>"
-                    f"<div style='font-size:14px;color:{TEXT_MUTED};margin-top:6px;'>"
-                    f"{format_deadline_local(deadline['deadline_time'])}</div>",
-                    unsafe_allow_html=True,
-                )
-            else:
-                header_cols[0].markdown("### No upcoming deadline found")
             gw_row = manager_gw.iloc[0] if not manager_gw.empty else None
             free_transfers = compute_free_transfers(manager_gw)
             bank = float(gw_row["bank"]) / 10 if gw_row is not None else 0.0
-            with header_cols[1]:
-                show_tile(render_stat_tile_html("Free transfers", str(free_transfers)), height=96)
-            with header_cols[2]:
-                show_tile(render_stat_tile_html("Bank", f"£{bank:.1f}m"), height=96)
-
             cap = captain_recommendation(starting)
             changes = lineup_changes(squad)
             plan, _, remaining_bank = suggest_transfer_plan(squad, rankings, bank, free_transfers)
 
-            # The hairdryer replaces the separate captain/lineup tiles: every call for the week in
-            # one place, hotter the more predicted points are still on the table.
+            # The Team Talk: the tactics board with this week's calls drawn on, beside the hairdryer
+            # (the same calls as a list, hotter the more predicted points are still on the table).
             calls = build_calls(cap, changes, squad, starting, plan)
-            show_tile(
-                render_hairdryer_html(calls, deadline["event_id"] if deadline is not None else None, FONT_CSS),
-                height="content",
-                alt="Hairdryer: this week's calls - " + "; ".join(
-                    c["title"] + (" (done)" if c["done"] else f" (+{c['gain']:.1f} pts)") for c in calls
-                ),
-            )
-
-            st.markdown("#### Your team")
-            pitch_html = render_pitch_html(starting, changes["bench_out_codes"])
-            show_tile(pitch_html, height=540, alt="Your starting XI on a pitch: " + _tile_text(pitch_html))
-            if not bench.empty:
-                show_tile(render_bench_html(bench, changes["bring_in_codes"]), height="content")
+            board_col, calls_col = st.columns([1.75, 1], gap="medium")
+            with board_col:
+                drawn = board_calls(cap, changes, squad, plan)
+                board_bench = bench.sort_values("squad_position") if "squad_position" in bench else bench
+                show_tile(
+                    render_board_html(
+                        board_data(starting, board_bench), drawn,
+                        "Magnets show predicted points for the coming gameweek; C and V are your captain and vice.",
+                    ),
+                    height="content",
+                    alt="Tactics board: your XI with predicted points. " + " ".join(f"{c['n']}: {c['label']}." for c in drawn),
+                )
+            with calls_col:
+                ft_col, bank_col = st.columns(2)
+                with ft_col:
+                    show_tile(render_stat_tile_html("Free transfers", str(free_transfers)), height=96)
+                with bank_col:
+                    show_tile(render_stat_tile_html("Bank", f"£{bank:.1f}m"), height=96)
+                show_tile(
+                    render_hairdryer_html(calls, deadline["event_id"] if deadline is not None else None, FONT_CSS),
+                    height="content",
+                    alt="Hairdryer: this week's calls - " + "; ".join(
+                        c["title"] + (" (done)" if c["done"] else f" (+{c['gain']:.1f} pts)") for c in calls
+                    ),
+                )
 
             st.divider()
             st.markdown("#### Recommended transfer")
@@ -949,16 +826,17 @@ if settings.ENTRY_ID:
             if comparison.empty:
                 st.info("No gameweek history ingested yet.")
             else:
-                fig, ax = plt.subplots(figsize=(9, 3.5))
+                fig, ax = plt.subplots(figsize=(11, 3.6))
                 style_chart(fig, ax)
-                ax.plot(comparison["gw_name"], comparison["actual_points"], color=CAPTAIN_BADGE,
+                gw_labels = comparison["gw_name"].str.replace("Gameweek ", "GW", regex=False)
+                ax.plot(gw_labels, comparison["actual_points"], color=CAPTAIN_BADGE,
                         linewidth=2.5, marker="o", markersize=4, label="Actual")
-                ax.plot(comparison["gw_name"], comparison["model_predicted_points"], color=SERIES_MODEL,
+                ax.plot(gw_labels, comparison["model_predicted_points"], color=SERIES_MODEL,
                         linewidth=2, marker="o", markersize=3, label="This model")
-                ax.plot(comparison["gw_name"], comparison["epl_predicted_points"], color=TEXT_MUTED,
+                ax.plot(gw_labels, comparison["epl_predicted_points"], color=TEXT_MUTED,
                         linewidth=2, linestyle="--", marker="o", markersize=3, label="FPL's own")
                 ax.set_ylabel("Points")
-                ax.legend(facecolor=CARD_BG, edgecolor=CARD_BORDER, labelcolor=TEXT_PRIMARY, fontsize=9)
+                ax.legend(facecolor=CARD_BG, edgecolor=CARD_BORDER, labelcolor=TEXT_PRIMARY, fontsize=8)
                 plt.tight_layout()
                 st.pyplot(fig)
 
@@ -1022,8 +900,9 @@ with tab_players:
     available = rankings[rankings["status"] == "a"]
     st.markdown(
         f"<div style='font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;"
-        f"color:{TEXT_MUTED};margin-bottom:6px;'>Players</div>"
-        f"<div style='font-size:32px;font-weight:800;line-height:1;color:{TEXT_PRIMARY};'>"
+        f"color:{STATUS_WARNING};margin-bottom:6px;'>Players</div>"
+        f"<div style='font:900 34px/1 \"Big Shoulders Display\",\"Arial Narrow\",sans-serif;"
+        f"text-transform:uppercase;letter-spacing:.01em;color:{TEXT_PRIMARY};'>"
         f"{len(available)} available</div>",
         unsafe_allow_html=True,
     )
@@ -1071,7 +950,7 @@ with tab_players:
         )
         show_tile(
             f'<div style="display:flex;flex-direction:column;gap:10px;">{rows_html}</div>',
-            height=72 * len(top_rows) + 10 * (len(top_rows) - 1) + 20,
+            height="content",
             alt=f"Top {len(top_rows)} players sorted by {sort_choice}, with predicted points, "
                 "floor-to-ceiling range and ceiling probability. Full table below.",
         )
@@ -1120,8 +999,9 @@ with tab_fixtures:
 
     st.markdown(
         f"<div style='font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;"
-        f"color:{TEXT_MUTED};margin-bottom:6px;'>Fixtures</div>"
-        f"<div style='font-size:32px;font-weight:800;line-height:1;color:{TEXT_PRIMARY};'>"
+        f"color:{STATUS_WARNING};margin-bottom:6px;'>Fixtures</div>"
+        f"<div style='font:900 34px/1 \"Big Shoulders Display\",\"Arial Narrow\",sans-serif;"
+        f"text-transform:uppercase;letter-spacing:.01em;color:{TEXT_PRIMARY};'>"
         f"Next {DEFAULT_HORIZON} gameweeks</div>",
         unsafe_allow_html=True,
     )
@@ -1253,7 +1133,7 @@ with tab_optimal:
     )
     opt_value_col = "horizon_points" if "GWs" in opt_horizon else "predicted_points"
     opt_squad, opt_xi, opt_captain, opt_objective = solve_optimal_squad(season, budget, opt_value_col)
-    opt_label = f"Predicted (next {DEFAULT_HORIZON} GWs)" if opt_value_col == "horizon_points" else "Predicted (next GW)"
+    opt_basis = f"next {DEFAULT_HORIZON} GWs" if opt_value_col == "horizon_points" else "next GW"
 
     if opt_squad is None:
         st.error("No feasible squad found at this budget — try raising it.")
@@ -1267,47 +1147,48 @@ with tab_optimal:
         opt_starting = opt_squad[opt_squad["starting"]]
         opt_bench = opt_squad[~opt_squad["starting"]]
 
-        stat_cols = st.columns(3 if settings.ENTRY_ID else 2)
-        with stat_cols[0]:
+        # The This Week layout: the board on the left, the numbers beside it - a full-width
+        # board blows the magnets up to twice their size.
+        board_col, side_col = st.columns([1.75, 1], gap="medium")
+        with side_col:
             show_tile(render_stat_tile_html(
                 "Projected XI points", f"{opt_objective:.1f}", sublabel="Captain doubled", accent=STATUS_GOOD,
             ), height=124)
-        with stat_cols[1]:
             spend = opt_squad["price"].sum()
             show_tile(render_stat_tile_html(
                 "Spend", f"£{spend:.1f}m", sublabel=f"£{budget - spend:.1f}m unspent",
             ), height=124)
 
-        actual_total = None
-        if settings.ENTRY_ID:
-            actual_squad, _ = load_squad(season, settings.ENTRY_ID)
-            actual_squad = actual_squad.merge(
-                rankings[["player_code", "horizon_points", "horizon_fixtures"]], on="player_code", how="left"
-            )
+            actual_squad = pd.DataFrame()
+            if settings.ENTRY_ID:
+                actual_squad, _ = load_squad(season, settings.ENTRY_ID)
+                actual_squad = actual_squad.merge(
+                    rankings[["player_code", "horizon_points", "horizon_fixtures"]], on="player_code", how="left"
+                )
             if not actual_squad.empty:
                 actual_xi, _ = best_starting_xi(actual_squad, value_col=opt_value_col)
                 actual_total = actual_xi[opt_value_col].sum()
-                with stat_cols[2]:
-                    show_tile(render_stat_tile_html(
-                        "Your squad, same basis", f"{actual_total:.1f}",
-                        sublabel=f"{opt_objective - actual_total:+.1f} vs. this squad", accent=STATUS_WARNING,
-                    ), height=124)
+                show_tile(render_stat_tile_html(
+                    "Your squad, same basis", f"{actual_total:.1f}",
+                    sublabel=f"{opt_objective - actual_total:+.1f} vs. this squad", accent=STATUS_WARNING,
+                ), height=124)
+                overlap = set(opt_squad["player_code"]) & set(actual_squad["player_code"])
+                transfers_needed = 15 - len(overlap)
+                show_tile(render_action_tile_html(
+                    "good" if transfers_needed == 0 else "attention",
+                    f"{len(overlap)} of your 15 already match this squad",
+                    "Your squad already matches." if transfers_needed == 0 else
+                    f"Getting the rest costs {transfers_needed} transfers — a wildcard decision, not a weekly one.",
+                ), height=110)
 
-        st.markdown("#### The solver's XI")
-        opt_pitch_html = render_pitch_html(opt_starting, set(), value_col=opt_value_col)
-        show_tile(opt_pitch_html, height=540, alt="The solver's starting XI on a pitch: " + _tile_text(opt_pitch_html))
-        if not opt_bench.empty:
-            show_tile(render_bench_html(opt_bench, set(), value_col=opt_value_col), height="content")
-
-        if settings.ENTRY_ID and not actual_squad.empty:
-            overlap = set(opt_squad["player_code"]) & set(actual_squad["player_code"])
-            transfers_needed = 15 - len(overlap)
-            show_tile(render_action_tile_html(
-                "good" if transfers_needed == 0 else "attention",
-                f"{len(overlap)} of your 15 already match this squad",
-                "Your squad already matches." if transfers_needed == 0 else
-                f"Getting the rest costs {transfers_needed} transfers — a wildcard decision, not a weekly one.",
-            ), height=110)
+        with board_col:
+            st.markdown("#### The solver's XI")
+            opt_board_html = render_board_html(
+                board_data(opt_starting, opt_bench, value_col=opt_value_col), [],
+                f"Magnets show predicted points for the {opt_basis}; C is the solver's captain.",
+                calm=None,
+            )
+            show_tile(opt_board_html, height="content", alt="The solver's XI on a tactics board: " + _tile_text(opt_board_html))
 
         st.caption(
             "Solved as one integer program: squad and starting XI chosen together, captain's "
