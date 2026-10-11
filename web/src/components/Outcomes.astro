@@ -1,0 +1,118 @@
+---
+// Range of outcomes: 10,000 simulated gameweeks for the XI you've picked, as a histogram -
+// one series, so no legend; the title names it. Bars inside the likely band (p10-p90) are full
+// strength, the tails recede.
+import type { Outcomes } from "../lib/data";
+interface Props { o: Outcomes }
+const { o } = Astro.props;
+
+// Drawn in HTML, not a scaled SVG, so labels stay at their real size from phone to desktop.
+const lo = o.edges[0], hi = o.edges[o.edges.length - 1];
+const at = (v: number) => `${(((v - lo) / (hi - lo)) * 100).toFixed(2)}%`;
+const maxC = Math.max(...o.counts);
+const bars = o.counts.map((c, i) => {
+  const mid = (o.edges[i] + o.edges[i + 1]) / 2;
+  return {
+    h: `${((c / maxC) * 100).toFixed(2)}%`,
+    likely: mid >= o.p10 && mid <= o.p90,
+    tip: `${Math.round(o.edges[i])}–${Math.round(o.edges[i + 1])} pts: ${((c / o.samples) * 100).toFixed(1)}% of weeks`,
+  };
+});
+const step = hi - lo > 80 ? 20 : 10;
+const ticks: number[] = [];
+for (let t = Math.ceil(lo / step) * step; t <= hi; t += step) ticks.push(t);
+const marks = [
+  { v: o.p10, label: "p10", cls: "" },
+  { v: o.p50, label: "median", cls: "main" },
+  { v: o.p90, label: "p90", cls: "" },
+];
+const tiles = [
+  { label: "Likely (median)", value: o.p50.toFixed(0), tone: "" },
+  { label: "Bad week (p10)", value: o.p10.toFixed(0), tone: "" },
+  { label: "Great week (p90)", value: o.p90.toFixed(0), tone: "good" },
+  { label: "Chance of 80+", value: `${Math.round(o.p_beat_80 * 100)}%`, tone: "" },
+];
+---
+<section class="oc" aria-labelledby="oc-h">
+  <p class="eyebrow">Range of outcomes</p>
+  <h2 id="oc-h">What this XI could score</h2>
+  <div class="body">
+  <div class="tiles">
+    {tiles.map((t) => <div class="card tile"><p class="lbl">{t.label}</p><p class:list={["val", t.tone]}>{t.value}</p></div>)}
+  </div>
+  <figure class="card chart" data-chart>
+    <div class="plot" role="img" aria-label={`Histogram of ${o.samples.toLocaleString("en-GB")} simulated gameweeks for your starting XI, captain doubled. Median ${o.p50.toFixed(0)} points; 80% of weeks fall between ${o.p10.toFixed(0)} and ${o.p90.toFixed(0)}.`}>
+      <div class="bars">
+        {bars.map((b) => <div class="col" data-tip={b.tip}><span class:list={["bar", { tail: !b.likely }]} style={`height:${b.h}`}></span></div>)}
+      </div>
+      {marks.map((k) => <div class:list={["mk", k.cls]} style={`left:${at(k.v)}`} aria-hidden="true"><span>{k.label} {k.v.toFixed(0)}</span></div>)}
+    </div>
+    <div class="ticks" aria-hidden="true">{ticks.map((t) => <span style={`left:${at(t)}`}>{t}</span>)}</div>
+    <div class="tip" role="status" hidden></div>
+    <figcaption class="muted">
+      {o.samples.toLocaleString("en-GB")} simulated gameweeks for the XI you've picked, captain doubled, each player drawn from
+      the model's floor-median-ceiling. Players are drawn independently, so the real spread is a little wider.
+    </figcaption>
+    <details>
+      <summary>As a table</summary>
+      <table>
+        <thead><tr><th scope="col">Points</th><th scope="col" class="num">Share of weeks</th></tr></thead>
+        <tbody>{bars.map((b) => { const [r, s] = b.tip.split(": "); return <tr><td>{r}</td><td class="num">{s.replace(" of weeks", "")}</td></tr>; })}</tbody>
+      </table>
+    </details>
+  </figure>
+  </div>
+</section>
+
+<script>
+  for (const fig of document.querySelectorAll<HTMLElement>("[data-chart]")) {
+    const tip = fig.querySelector<HTMLElement>(".tip")!;
+    const plot = fig.querySelector<HTMLElement>(".plot")!;
+    const clear = () => fig.querySelectorAll(".col.on").forEach((c) => c.classList.remove("on"));
+    plot.addEventListener("pointermove", (e) => {
+      const col = (e.target as Element).closest<HTMLElement>(".col");
+      clear();
+      if (!col) { tip.hidden = true; return; }
+      col.classList.add("on");
+      tip.textContent = col.dataset.tip!;
+      tip.hidden = false;
+      const box = fig.getBoundingClientRect(), r = col.getBoundingClientRect();
+      tip.style.left = `${Math.min(Math.max(r.left + r.width / 2 - box.left, 90), box.width - 90)}px`;
+      tip.style.top = `${r.top - box.top + r.height - (col.firstElementChild as HTMLElement).offsetHeight - 8}px`;
+    });
+    plot.addEventListener("pointerleave", () => { tip.hidden = true; clear(); });
+  }
+</script>
+
+<style>
+  h2 { margin-bottom: 14px; }
+  .body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.2fr); gap: 12px; align-items: start; }
+  .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 900px) { .body { grid-template-columns: minmax(0, 1fr); } }
+  .tile { padding: 14px 16px; }
+  .lbl { font-size: 13px; color: var(--muted); }
+  .val { font: 800 38px/1.05 var(--display); }
+  .val.good { color: var(--good); }
+  .chart { position: relative; margin: 0; padding: 18px 18px 14px; }
+  .plot { position: relative; height: clamp(170px, 22vw, 240px); margin-top: 26px; border-bottom: 1px solid var(--line); }
+  .bars { position: absolute; inset: 0; display: flex; align-items: flex-end; gap: 2px; }
+  .col { flex: 1 1 0; height: 100%; display: flex; align-items: flex-end; justify-content: center; cursor: default; }
+  .col.on { background: rgba(242, 245, 240, .06); }
+  .bar { display: block; width: 100%; max-width: 24px; background: var(--marker); border-radius: 4px 4px 0 0; }
+  .bar.tail { background: #8a7d2e; }
+  .mk { position: absolute; top: -22px; bottom: 0; width: 0; border-left: 1px solid var(--muted); }
+  .mk.main { border-left-color: var(--ink); }
+  .mk span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; font-size: 13px; font-weight: 700; color: var(--muted);
+    background: var(--surface); padding: 0 4px; line-height: 18px; }
+  .mk.main span { color: var(--ink); }
+  .ticks { position: relative; height: 22px; margin-top: 4px; }
+  .ticks span { position: absolute; transform: translateX(-50%); font-size: 12px; color: var(--muted); }
+  .tip { position: absolute; transform: translate(-50%, -100%); background: var(--ink); color: var(--studio); font-size: 13px; font-weight: 600;
+    padding: 6px 10px; border-radius: 8px; pointer-events: none; white-space: nowrap; z-index: 1; }
+  figcaption { font-size: 13px; margin-top: 8px; }
+  details { margin-top: 10px; font-size: 14px; }
+  summary { cursor: pointer; color: var(--muted); }
+  details table { border-collapse: collapse; margin-top: 8px; }
+  details td, details th { padding: 4px 16px 4px 0; border-bottom: 1px solid var(--line); text-align: left; }
+  .num { text-align: right; }
+</style>

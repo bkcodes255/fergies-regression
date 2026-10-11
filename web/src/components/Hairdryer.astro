@@ -1,0 +1,107 @@
+---
+// The hairdryer: this week's calls, hotter the more predicted points are still on the table.
+// Ported from dashboard/hairdryer.py; the calls themselves come from its build_calls().
+import type { Call } from "../lib/data";
+interface Props { calls: Call[]; gameweek: number | null; full: number }
+const { calls, gameweek, full } = Astro.props;
+const payload = JSON.stringify({ calls, gw: gameweek, full }).replace(/</g, "\\u003c");
+---
+<section class="hd" data-hairdryer aria-labelledby="hd-h">
+  <svg viewBox="0 0 400 300" aria-hidden="true" class="dryer">
+    <g class="wind"><path d="M250 90 Q300 70 390 85" /><path d="M262 130 Q320 128 395 130" /><path d="M250 170 Q300 190 390 175" /></g>
+    <rect x="70" y="80" width="190" height="110" rx="55" fill="#f2f2ee" />
+    <rect x="236" y="96" width="34" height="78" rx="10" fill="#c8c8c0" />
+    <circle cx="125" cy="135" r="34" fill="#1d1f1a" /><circle cx="125" cy="135" r="14" fill="#5b5f55" />
+    <path d="M120 185 L100 285 L150 285 L165 185 Z" fill="#e2e2dc" />
+    <rect x="128" y="205" width="16" height="30" rx="4" fill="#d7263d" />
+  </svg>
+  <div class="body">
+    <h2 id="hd-h" class="gauge">Hairdryer level</h2>
+    <p class="level"><span data-level>0</span><small> / 10</small></p>
+    <p class="rant" data-rant aria-live="polite"></p>
+    <ul>
+      {calls.map((c) => (
+        <li>
+          <label class:list={{ locked: c.done }}>
+            <input type="checkbox" data-id={c.id} checked={c.done} disabled={c.done} />
+            <span class="box" aria-hidden="true"></span>
+            <span class="t">{c.title}<small>{c.kind} · {c.detail}{c.done ? " · done in FPL" : ""}</small></span>
+            <span class="p">{c.done ? "" : `+${c.gain.toFixed(1)}`}</span>
+          </label>
+        </li>
+      ))}
+    </ul>
+    <p class="note" data-note></p>
+  </div>
+  <script type="application/json" data-hd-json set:html={payload} />
+</section>
+
+<script>
+  type C = { id: string; gain: number; done: boolean; shout?: string; mutter?: string };
+  for (const hd of document.querySelectorAll<HTMLElement>("[data-hairdryer]")) {
+    const D: { calls: C[]; gw: number | null; full: number } = JSON.parse(hd.querySelector("[data-hd-json]")!.textContent!);
+    // Ticks are remembered per gameweek in this browser - for the gap between making a change in
+    // FPL and the next data refresh confirming it.
+    const key = (id: string) => `fergie-hairdryer-gw${D.gw}-${id}`;
+    const boxes = [...hd.querySelectorAll<HTMLInputElement>("input[data-id]")];
+    const store = {
+      get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
+      set: (k: string, on: boolean) => { try { on ? localStorage.setItem(k, "1") : localStorage.removeItem(k); } catch { /* private mode */ } },
+    };
+    const update = () => {
+      const open = D.calls.filter((c) => !c.done && !boxes.find((b) => b.dataset.id === c.id)!.checked).sort((a, b) => b.gain - a.gain);
+      const left = open.reduce((s, c) => s + c.gain, 0);
+      const heat = Math.min(left / D.full, 1);
+      hd.style.setProperty("--heat", heat.toFixed(3));
+      hd.querySelector("[data-level]")!.textContent = String(Math.round(heat * 10));
+      const outstanding = D.calls.filter((c) => !c.done).length;
+      let line = "Aye. That'll do, son. Now go and enjoy your weekend.";
+      if (open.length && open.length === outstanding && outstanding > 1) line = open.map((c) => c.shout!.split("?")[0] + "?").join(" ") + " Get in here. Now.";
+      else if (open.length) line = heat > 0.5 ? open[0].shout! : open[0].mutter!;
+      hd.querySelector("[data-rant]")!.textContent = line;
+      hd.querySelector("[data-note]")!.textContent = left > 0
+        ? `+${left.toFixed(1)} predicted points still on the table. Tick a call once you've made it in FPL; the next data refresh confirms it.`
+        : "Nothing left on the table this gameweek.";
+    };
+    for (const b of boxes) {
+      if (b.disabled) continue;
+      if (store.get(key(b.dataset.id!)) === "1") b.checked = true;
+      b.addEventListener("change", () => { store.set(key(b.dataset.id!), b.checked); update(); });
+    }
+    update();
+  }
+</script>
+
+<style>
+  .hd { --heat: 1; color: #fff; padding: clamp(18px, 2.4vw, 28px); position: relative; overflow: hidden; border-radius: var(--radius);
+    background: radial-gradient(120% 120% at 15% 30%,
+      hsl(calc(48 - var(--heat) * 48) 95% calc(56% - var(--heat) * 8%)) 0%,
+      hsl(calc(28 - var(--heat) * 28) 85% calc(30% - var(--heat) * 6%)) 70%, #160806 100%);
+    transition: background .6s; }
+  .dryer { width: 100%; max-width: 260px; height: auto; display: block; margin: 0 auto 4px; }
+  .wind path { stroke: rgba(255, 255, 255, .75); stroke-width: 6; stroke-linecap: round; fill: none; stroke-dasharray: 40 30;
+    animation: wind calc(1.6s - var(--heat) * 1.1s) linear infinite; opacity: calc(.15 + var(--heat) * .85); }
+  @keyframes wind { to { stroke-dashoffset: -70; } }
+  .gauge { font: 400 15px/1 var(--shout); letter-spacing: .12em; opacity: .9; }
+  .level { font: 400 clamp(64px, 8vw, 96px)/.9 var(--shout); margin-top: 6px; }
+  .level small { font-size: .35em; opacity: .8; }
+  .rant { font: 400 clamp(22px, 2.6vw, 30px)/1.1 var(--shout); text-transform: uppercase; margin: 10px 0 18px; text-wrap: balance;
+    animation: shake calc(.5s - var(--heat) * .35s) infinite; }
+  @keyframes shake { 25% { transform: translate(calc(var(--heat) * 2px), calc(var(--heat) * -1px)); }
+                     75% { transform: translate(calc(var(--heat) * -2px), calc(var(--heat) * 1px)); } }
+  ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  label { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center;
+    background: rgba(0, 0, 0, .3); padding: 10px 14px; border-radius: 10px; cursor: pointer; }
+  label.locked { cursor: default; }
+  input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .box { width: 24px; height: 24px; border: 2.5px solid #fff; border-radius: 6px; display: grid; place-items: center; font-weight: 800; color: #1d1f1a; }
+  input:checked ~ .box { background: #fff; }
+  input:checked ~ .box::after { content: "\2713"; }
+  input:focus-visible ~ .box { outline: 3px solid #fff; outline-offset: 3px; }
+  .t { font-weight: 600; font-size: 15px; line-height: 1.3; min-width: 0; }
+  .t small { display: block; font-weight: 400; opacity: .85; font-size: 13px; }
+  .p { font: 400 22px/1 var(--shout); }
+  label:has(input:checked) .t, label:has(input:checked) .p { opacity: .6; }
+  label:has(input:checked:not(:disabled)) .t { text-decoration: line-through; }
+  .note { font-size: 13px; opacity: .85; margin-top: 12px; line-height: 1.4; }
+</style>

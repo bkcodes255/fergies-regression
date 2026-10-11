@@ -1,0 +1,118 @@
+name: Deploy the web site
+
+# Rebuilds and deploys the static site (web/) on Cloudflare Pages after every data refresh, so
+# This Week always shows the newest squad and predictions. The data is exported from the
+# database here, baked into the build, and never reachable from the browser.
+#
+# Does nothing until it's set up (see "Web site" in README.md): it needs the CLOUDFLARE_API_TOKEN
+# and CLOUDFLARE_ACCOUNT_ID secrets. The login itself is Cloudflare Access, configured on
+# Cloudflare's side; the site refuses every request without it.
+on:
+  workflow_run:
+    workflows: ["Ingest data and refresh predictions"]
+    types: [completed]
+  push:
+    branches: [master]
+    paths:
+      - "web/**"
+      - "src/web_data/**"
+      - "dashboard/team_talk.py"
+      - "dashboard/hairdryer.py"
+      - ".github/workflows/web.yml"
+  workflow_dispatch: {}
+
+# A newer refresh supersedes one still deploying.
+concurrency:
+  group: web-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check the site is set up
+        id: setup
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::Web site not set up yet (no CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID secrets) - skipping. See README 'Web site'."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.setup.outputs.ready == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.setup.outputs.ready == 'true'
+        with:
+          python-version: "3.12"
+
+      # Just the export's import graph (src/web_data/export.py) - no model libraries.
+      - name: Install Python dependencies
+        if: steps.setup.outputs.ready == 'true'
+        run: pip install psycopg2-binary "psycopg[binary]>=3.1" sqlalchemy python-dotenv pandas numpy
+
+      - name: Export This Week from the database
+        if: steps.setup.outputs.ready == 'true'
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          FPL_SEASON: "2026-27"
+          FPL_ENTRY_ID: ${{ secrets.FPL_ENTRY_ID }}
+        run: python -m src.web_data.export --out web/src/data/this-week.json
+
+      # On matchdays the refresh runs every 15 minutes; only deploy when what the page shows has
+      # actually changed (the export's timestamp aside).
+      - name: Fingerprint the data
+        if: steps.setup.outputs.ready == 'true'
+        id: fp
+        run: |
+          echo "hash=$(python -c "import json,hashlib; d=json.load(open('web/src/data/this-week.json')); d.pop('generated_at'); print(hashlib.sha256(json.dumps(d, sort_keys=True).encode()).hexdigest()[:16])")-${{ hashFiles('web/**', '!web/src/data/**') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if this exact page is already live
+        if: steps.setup.outputs.ready == 'true'
+        id: seen
+        uses: actions/cache/restore@v4
+        with:
+          path: .web-deployed
+          key: web-deployed-${{ steps.fp.outputs.hash }}
+          lookup-only: true
+
+      - uses: actions/setup-node@v4
+        if: steps.setup.outputs.ready == 'true' && steps.seen.outputs.cache-hit != 'true'
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install, test and build
+        if: steps.setup.outputs.ready == 'true' && steps.seen.outputs.cache-hit != 'true'
+        working-directory: web
+        env:
+          REQUIRE_WEB_DATA: "1"
+          PUBLIC_STREAMLIT_URL: ${{ vars.STREAMLIT_URL }}
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Deploy to Cloudflare Pages
+        if: steps.setup.outputs.ready == 'true' && steps.seen.outputs.cache-hit != 'true'
+        working-directory: web
+        # --branch is the Pages project's production branch name (Cloudflare's, set when the
+        # project is created - "main" by default; repo variable CF_PAGES_BRANCH overrides), not this repo's git branch.
+        run: npx wrangler pages deploy dist --project-name "${{ vars.CF_PAGES_PROJECT || 'fergies-regression' }}" --branch "${{ vars.CF_PAGES_BRANCH || 'main' }}" --commit-dirty=true
+
+      - name: Remember what's live
+        if: steps.setup.outputs.ready == 'true' && steps.seen.outputs.cache-hit != 'true'
+        run: mkdir -p .web-deployed && echo "${{ steps.fp.outputs.hash }}" > .web-deployed/hash
+
+      - uses: actions/cache/save@v4
+        if: steps.setup.outputs.ready == 'true' && steps.seen.outputs.cache-hit != 'true'
+        with:
+          path: .web-deployed
+          key: web-deployed-${{ steps.fp.outputs.hash }}

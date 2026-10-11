@@ -1,0 +1,102 @@
+---
+// The player card behind each magnet. One <dialog>, filled in by script when a magnet is opened.
+import type { Player } from "../lib/data";
+interface Props { players: Record<string, Player>; horizon: number }
+const { players, horizon } = Astro.props;
+const payload = JSON.stringify({ players, horizon }).replace(/</g, "\\u003c");
+---
+<dialog class="sheet" data-sheet aria-labelledby="ps-name">
+  <form method="dialog"><button class="x" aria-label="Close player card">×</button></form>
+  <p class="eyebrow" data-f="meta"></p>
+  <h2 id="ps-name" data-f="name"></h2>
+  <div class="nums">
+    <div><p class="lbl">Next GW</p><p class="v" data-f="predicted"></p></div>
+    <div><p class="lbl">Next {horizon} GWs</p><p class="v" data-f="horizon"></p></div>
+    <div><p class="lbl">Chance of 10+</p><p class="v" data-f="haul"></p></div>
+  </div>
+  <div class="range">
+    <p class="lbl">Floor to ceiling, next GW</p>
+    <div class="track" aria-hidden="true"><span class="band" data-f="band"></span><span class="med" data-f="med"></span></div>
+    <p class="muted small" data-f="rangeText"></p>
+  </div>
+  <div>
+    <p class="lbl">Next fixtures <span class="muted">· 1 easiest, 5 hardest</span></p>
+    <ol class="fx" data-f="fixtures"></ol>
+  </div>
+  <script type="application/json" data-sheet-json set:html={payload} />
+</dialog>
+
+<script>
+  type F = { gw: number; opp: string; home: boolean; grade: number | null };
+  type P = { name: string; team: string; position: string; price: number | null; predicted: number | null; horizon: number | null;
+    floor: number | null; median: number | null; ceiling: number | null; haul: number | null; fixtures: F[] };
+  const dlg = document.querySelector<HTMLDialogElement>("[data-sheet]")!;
+  const { players } = JSON.parse(dlg.querySelector("[data-sheet-json]")!.textContent!) as { players: Record<string, P> };
+  const f = (k: string) => dlg.querySelector<HTMLElement>(`[data-f="${k}"]`)!;
+  const n1 = (v: number | null) => (v === null ? "–" : v.toFixed(1));
+  const SCALE = 15; // points; the range strip clips a bigger ceiling, the text beside it doesn't
+  const pct = (v: number) => `${Math.min(Math.max(v / SCALE, 0), 1) * 100}%`;
+  let opener: HTMLElement | null = null;
+
+  document.addEventListener("player:open", (e) => {
+    const p = players[String((e as CustomEvent).detail.id)];
+    if (!p) return;
+    opener = document.activeElement as HTMLElement;
+    f("meta").textContent = [p.team, p.position, p.price !== null ? `£${p.price.toFixed(1)}m` : null].filter(Boolean).join(" · ");
+    f("name").textContent = p.name;
+    f("predicted").textContent = n1(p.predicted);
+    f("horizon").textContent = n1(p.horizon);
+    f("haul").textContent = p.haul === null ? "–" : `${Math.round(p.haul * 100)}%`;
+    const has = p.floor !== null && p.ceiling !== null;
+    f("band").style.left = has ? pct(p.floor!) : "0";
+    f("band").style.width = has ? `calc(${pct(p.ceiling!)} - ${pct(p.floor!)})` : "0";
+    f("med").style.left = pct(p.median ?? p.predicted ?? 0);
+    f("rangeText").textContent = has ? `${n1(p.floor)} to ${n1(p.ceiling)} pts, median ${n1(p.median)}` : "No range from the model yet";
+    f("fixtures").replaceChildren(...(p.fixtures.length ? p.fixtures.map((x) => {
+      const li = document.createElement("li");
+      li.className = `g${x.grade ?? 0}`;
+      li.innerHTML = `<small>GW${x.gw}</small><b></b><span></span>`;
+      li.querySelector("b")!.textContent = `${x.opp} (${x.home ? "H" : "A"})`;
+      li.querySelector("span")!.textContent = x.grade === null ? "–" : String(x.grade);
+      return li;
+    }) : [Object.assign(document.createElement("li"), { textContent: "No fixtures in the window", className: "none" })]));
+    dlg.showModal();
+  });
+  // A tap on the backdrop closes it (the backdrop belongs to the dialog, so check the point).
+  dlg.addEventListener("click", (e) => {
+    const r = dlg.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dlg.close();
+  });
+  dlg.addEventListener("close", () => opener?.focus());
+</script>
+
+<style>
+  .sheet { width: min(460px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); border: 1px solid var(--line); border-radius: 18px;
+    background: var(--surface); color: var(--ink); padding: 22px; }
+  .sheet[open] { display: grid; gap: 18px; animation: up .25s ease-out; }
+  .sheet::backdrop { background: rgba(5, 8, 6, .7); }
+  @keyframes up { from { transform: translateY(16px); opacity: 0; } }
+  @media (max-width: 560px) { .sheet { margin: auto auto 12px; } }
+  form { position: absolute; top: 10px; right: 10px; margin: 0; }
+  .x { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface-2); font-size: 22px; cursor: pointer; }
+  h2 { font-size: 40px; margin-top: 2px; padding-right: 40px; }
+  .nums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .nums > div { background: var(--surface-2); border-radius: 12px; padding: 10px 12px; }
+  .lbl { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .v { font: 800 32px/1.05 var(--display); }
+  .track { position: relative; height: 10px; border-radius: 999px; background: var(--studio); margin: 10px 0 6px; }
+  .band { position: absolute; top: 0; height: 100%; border-radius: 999px; background: #3c5a47; }
+  .med { position: absolute; top: -4px; width: 4px; height: 18px; margin-left: -2px; border-radius: 2px; background: var(--marker); }
+  .small { font-size: 13px; }
+  .fx { list-style: none; padding: 0; margin: 8px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+  .fx :global(li) { border-radius: 10px; padding: 7px 9px; display: grid; gap: 1px; font-size: 13px; position: relative; }
+  .fx :global(small) { font-size: 11px; opacity: .8; }
+  .fx :global(span) { position: absolute; top: 6px; right: 8px; font: 800 15px/1 var(--display); }
+  /* Fixture difficulty, easiest to hardest - every pair 4.5:1 or better, and the grade is printed, not colour alone. */
+  .fx :global(.g1) { background: #7BE495; color: #0B0F0D; }
+  .fx :global(.g2) { background: #166534; color: #F2F5F0; }
+  .fx :global(.g3) { background: #24352B; color: #F2F5F0; }
+  .fx :global(.g4) { background: #FFE14D; color: #0B0F0D; }
+  .fx :global(.g5) { background: #D7263D; color: #FFFFFF; }
+  .fx :global(.g0), .fx :global(.none) { background: var(--surface-2); color: var(--muted); }
+</style>
