@@ -1,0 +1,71 @@
+---
+import type { Board, BoardCall } from "../lib/data";
+interface Props { now: Board; after: Board; calls: BoardCall[]; caption: string }
+const { now, after, calls, caption } = Astro.props;
+const changes = calls.some((c) => c.kind !== "transfer");
+const payload = JSON.stringify({ now, after, calls }).replace(/</g, "\\u003c");
+const names = now.xi.flat().map((m) => m.full).join(", ");
+---
+<section class="tb" data-board aria-labelledby="tb-h">
+  <div class="tb-head">
+    <h2 id="tb-h">The board</h2>
+    {changes && (
+      <fieldset class="seg">
+        <legend class="sr-only">Show the board</legend>
+        <label><input type="radio" name="board-view" value="now" checked />Now</label>
+        <label><input type="radio" name="board-view" value="after" />After the talk</label>
+      </fieldset>
+    )}
+  </div>
+  <div class="board">
+    <svg role="group" aria-label={`Tactics board. Starting XI: ${names}. Each magnet opens that player's card.`}></svg>
+  </div>
+  <p class="after-sum" data-after-summary hidden aria-live="polite"></p>
+  <ol class="legend">
+    {calls.length
+      ? calls.map((c) => <li><span class="n" aria-hidden="true">{c.n}</span><span class="sr-only">Call {c.n}: </span>{c.label}</li>)
+      : <li class="calm">Nothing to change: the model is happy with this XI.</li>}
+  </ol>
+  <p class="cap">{caption}</p>
+  <script type="application/json" data-board-json set:html={payload} />
+</section>
+
+<script>
+  import { mountBoard } from "../scripts/board";
+  for (const root of document.querySelectorAll<HTMLElement>("[data-board]")) {
+    const { now, after, calls } = JSON.parse(root.querySelector("[data-board-json]")!.textContent!);
+    mountBoard(root, now, after, calls);
+  }
+</script>
+
+<style>
+  .tb-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 12px; }
+  fieldset { margin: 0; }
+  .board { --print: rgba(236, 244, 238, .30);
+    background: radial-gradient(120% 90% at 50% 40%, #185034 0%, var(--board) 55%, var(--board-edge) 100%);
+    border-radius: 12px; padding: 10px; box-shadow: inset 0 0 0 6px #1d2a22, inset 0 0 0 7px #34463b; }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .after-sum { margin-top: 10px; padding: 10px 14px; border-radius: 10px; background: var(--surface); border-left: 3px solid var(--good);
+    font-weight: 600; font-size: 15px; }
+  .legend { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 15px; font-weight: 600; }
+  .legend li { display: flex; align-items: center; gap: 8px; }
+  .legend .calm { color: var(--good); }
+  .n { font-family: var(--hand); color: var(--marker); width: 26px; height: 26px; border: 2px solid var(--marker); border-radius: 50%;
+    display: grid; place-items: center; font-size: 14px; line-height: 1; flex: 0 0 auto; }
+  .cap { font-size: 13px; color: var(--muted); margin-top: 8px; }
+
+  /* Board internals are drawn by script, so they need :global to be styled from here. */
+  .board :global(.mag) { cursor: pointer; transition: transform .8s cubic-bezier(.3, .9, .3, 1.05); outline: none; }
+  .board :global(svg.still .mag) { transition: none; }
+  .board :global(.mag .disc) { fill: var(--disc); transition: fill .5s; }
+  .board :global(.mag.on-bench .disc) { fill: #2a3a31; }
+  .board :global(.mag:hover .disc), .board :global(.mag:focus-visible .disc) { stroke: var(--marker); stroke-width: .9; }
+  .board :global(.calls) { transition: opacity .35s; }
+  .board :global(.calls.gone) { opacity: 0; pointer-events: none; }
+  .board :global(.drop) { transform-box: fill-box; transform-origin: center; animation: drop .5s cubic-bezier(.2, .9, .3, 1.3) both; }
+  .board :global(.ink) { stroke-dasharray: var(--len); stroke-dashoffset: var(--len); animation: draw .7s ease-out forwards; }
+  .board :global(.fade) { opacity: 0; animation: fade .4s ease-out forwards; }
+  @keyframes drop { from { opacity: 0; transform: translateY(-6px) scale(1.25); } to { opacity: 1; transform: none; } }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes fade { to { opacity: 1; } }
+</style>

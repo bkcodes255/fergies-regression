@@ -1,0 +1,125 @@
+---
+import type { Plan, PlanPlayer } from "../lib/data";
+import { signed } from "../lib/data";
+interface Props { plans: { "1gw": Plan; "5gw": Plan }; horizon: number }
+const { plans, horizon } = Astro.props;
+const top = plans["1gw"].transfers[0];
+const views = [
+  { key: "1gw", label: "Next GW", plan: plans["1gw"], unit: "pts next GW" },
+  { key: "5gw", label: `Next ${horizon} GWs`, plan: plans["5gw"], unit: `pts over ${horizon} GWs` },
+] as const;
+const who = (p: PlanPlayer) => [p.team, p.position, p.price != null ? `£${p.price.toFixed(1)}m` : null].filter(Boolean).join(" · ");
+---
+<section class="xfer" aria-labelledby="xfer-h">
+  <p class="eyebrow">Recommended transfer</p>
+  <h2 id="xfer-h">The deal</h2>
+  {top ? (
+    <div class="deal card">
+      <div class="side out">
+        <span class="crest" aria-hidden="true">{top.sell.team}</span>
+        <div><p class="lbl">Sell</p><p class="nm">{top.sell.web_name}</p><p class="muted">{who(top.sell)}</p></div>
+        <p class="pts"><b>{top.sell.value?.toFixed(1)}</b> pts</p>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="side in">
+        <span class="crest" aria-hidden="true">{top.buy.team}</span>
+        <div><p class="lbl">Buy</p><p class="nm">{top.buy.web_name}</p><p class="muted">{who(top.buy)}</p></div>
+        <p class="pts"><b>{top.buy.value?.toFixed(1)}</b> pts</p>
+      </div>
+      <div class="net">
+        <p class="lbl">Net gain, after any hit</p>
+        <p class="big">{signed(top.net)}<small> pts</small></p>
+        <p class="muted">{top.hit_cost ? `Includes a ${top.hit_cost}-point hit` : "Uses a free transfer"}</p>
+      </div>
+    </div>
+  ) : (
+    <div class="deal card calm"><p><b>No transfer recommended.</b> No move beats its cost this week.</p></div>
+  )}
+
+  <div class="plans">
+    <div class="plans-head">
+      <h3>The full plan</h3>
+      <fieldset class="seg">
+        <legend class="sr-only">Judge transfers by</legend>
+        {views.map((v, i) => <label><input type="radio" name="plan-view" value={v.key} checked={i === 0} />{v.label}</label>)}
+      </fieldset>
+    </div>
+    {views.map((v) => (
+      <div class={`plan plan-${v.key}`}>
+        {v.plan.transfers.length ? (
+          <div class="scroll">
+            <table>
+              <caption class="sr-only">Transfer plan judged on {v.unit}</caption>
+              <thead><tr><th scope="col">#</th><th scope="col">Sell</th><th scope="col">Buy</th><th scope="col" class="num opt">Gain</th><th scope="col" class="num opt">Hit</th><th scope="col" class="num">Net</th></tr></thead>
+              <tbody>
+                {v.plan.transfers.map((t) => (
+                  <tr>
+                    <td>{t.order}</td>
+                    <td>{t.sell.web_name} <span class="muted">{t.sell.team}</span></td>
+                    <td>{t.buy.web_name} <span class="muted">{t.buy.team}</span></td>
+                    <td class="num opt">{signed(t.gain)}</td>
+                    <td class="num opt">{t.hit_cost ? `−${t.hit_cost}` : "free"}</td>
+                    <td class="num strong">{signed(t.net)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <p class="muted none">No transfer clears its cost on this horizon.</p>}
+        <p class="sum muted">
+          Best XI {v.plan.xi_points_before.toFixed(1)} → <b>{v.plan.xi_points_after.toFixed(1)}</b> {v.unit} (captain counted twice) ·
+          bank £{v.plan.bank_before.toFixed(1)}m → £{v.plan.bank_after.toFixed(1)}m
+          {v.plan.runs_if_silent && " · this is the plan the Telegram bot submits if you don't answer it"}
+        </p>
+      </div>
+    ))}
+    <p class="muted foot">Coordinated, not independent: each transfer accounts for the ones before it, and the plan stops once the next move wouldn't survive its hit.</p>
+  </div>
+</section>
+
+<style>
+  h2 { margin-bottom: 14px; }
+  .deal { display: grid; grid-template-columns: minmax(0, max-content) auto minmax(0, max-content) minmax(0, 1fr); gap: 20px 32px; align-items: center; padding: 20px 24px; }
+  .deal.calm { display: block; border-left: 3px solid var(--good); }
+  .side { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px 20px; align-items: center; }
+  .crest { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; font: 800 15px/1 var(--display);
+    background: var(--surface-2); border: 3px solid var(--muted); letter-spacing: .03em; }
+  .in .crest { border-color: var(--good); }
+  .lbl { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .nm { font: 800 24px/1.05 var(--display); text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .side .muted { font-size: 13px; }
+  .pts { font-size: 13px; color: var(--muted); text-align: right; }
+  .pts b { display: block; font: 800 28px/1 var(--display); color: var(--ink); }
+  .arrow { font-size: 28px; color: var(--good); }
+  .net { border-left: 1px solid var(--line); padding-left: 28px; justify-self: end; }
+  .big { font: 900 48px/1 var(--display); color: var(--good); }
+  .big small { font-size: .4em; color: var(--muted); }
+  .net .muted { font-size: 13px; }
+  @media (max-width: 900px) {
+    .deal { grid-template-columns: minmax(0, 1fr); }
+    .arrow { transform: rotate(90deg); justify-self: center; line-height: 1; }
+    .net { border-left: 0; border-top: 1px solid var(--line); padding: 14px 0 0; justify-self: stretch; }
+  }
+
+  .plans { margin-top: 26px; }
+  .plans-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 16px; margin-bottom: 10px; }
+  h3 { font-size: 22px; font-weight: 800; }
+  fieldset { margin: 0; }
+  .plan-5gw { display: none; }
+  .plans:has(input[value="5gw"]:checked) .plan-5gw { display: block; }
+  .plans:has(input[value="5gw"]:checked) .plan-1gw { display: none; }
+  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  /* On a phone the net figure is what matters; gain and hit are folded into it. */
+  @media (max-width: 560px) { .opt { display: none; } th, td { padding: 10px 10px; } }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); background: var(--surface); }
+  tbody tr:last-child td { border-bottom: 0; }
+  .num { text-align: right; }
+  .strong { font-weight: 700; }
+  td .muted { font-size: 13px; }
+  .sum { font-size: 14px; margin-top: 10px; }
+  .sum b { color: var(--ink); }
+  .none { padding: 14px 0; }
+  .foot { font-size: 13px; margin-top: 6px; }
+</style>

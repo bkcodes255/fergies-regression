@@ -1,11 +1,11 @@
 """The current gameweek's recommendation: squad, rankings, transfer plans (next gameweek and
 5-gameweek horizon), best XI and captain - one definition shared by everything that needs it.
 
-Moved here unchanged from src/notify/deadline_scheduler.py so the read-only tools server
-(src/tools_server) can explain exactly the plan the Telegram approval flow proposes and
-auto-submits, without importing the Telegram bot. deadline_scheduler.py imports it from here.
-Takes any connection pandas can read from: a psycopg2 connection (the scheduler) or a
-SQLAlchemy connection (the tools server).
+Moved here unchanged from src/notify/deadline_scheduler.py so other readers (the web site's
+data export, and the read-only tools server planned next) can use exactly the plan the Telegram
+approval flow proposes and auto-submits, without importing the Telegram bot.
+deadline_scheduler.py imports it from here. Takes any connection pandas can read from: a
+psycopg2 connection (the scheduler) or a SQLAlchemy connection (the web export).
 """
 from __future__ import annotations
 

@@ -1,0 +1,1350 @@
+{
+ "generated_at": "2026-10-11T08:31:42Z",
+ "season": "2026-27",
+ "last_gw": 7,
+ "predicted_gw": 8,
+ "deadline": {
+  "event_id": 8,
+  "name": "Gameweek 8",
+  "time": "2026-10-13T09:27:36Z"
+ },
+ "horizon": 5,
+ "full_blast": 8.0,
+ "squad": {
+  "free_transfers": 5,
+  "bank": 1.5,
+  "board": {
+   "xi": [
+    [
+     {
+      "id": 101,
+      "n": "Taylor B",
+      "full": "Taylor B",
+      "p": 1.2,
+      "cap": false,
+      "vice": false
+     }
+    ],
+    [
+     {
+      "id": 203,
+      "n": "King",
+      "full": "King",
+      "p": 2.1,
+      "cap": false,
+      "vice": false
+     },
+     {
+      "id": 504,
+      "n": "Baker E",
+      "full": "Baker E",
+      "p": 4.6,
+      "cap": false,
+      "vice": false
+     },
+     {
+      "id": 705,
+      "n": "Jones",
+      "full": "Jones",
+      "p": 7.0,
+      "cap": false,
+      "vice": false
+     },
+     {
+      "id": 906,
+      "n": "Allen",
+      "full": "Allen",
+      "p": 3.3,
+      "cap": false,
+      "vice": false
+     }
+    ],
+    [
+     {
+      "id": 1210,
+      "n": "Walker K",
+      "full": "Walker K",
+      "p": 10.7,
+      "cap": true,
+      "vice": false
+     },
+     {
+      "id": 407,
+      "n": "Turner",
+      "full": "Turner",
+      "p": 3.3,
+      "cap": false,
+      "vice": false
+     },
+     {
+      "id": 808,
+      "n": "Collins",
+      "full": "Collins",
+      "p": 2.9,
+      "cap": false,
+      "vice": true
+     }
+    ],
+    [
+     {
+      "id": 1512,
+      "n": "Rogers",
+      "full": "Rogers",
+      "p": 2.6,
+      "cap": false,
+      "vice": false
+     },
+     {
+      "id": 1614,
+      "n": "Adams O",
+      "full": "Adams O",
+      "p": 0.6,
+      "cap": false,
+      "vice": false
+     },
+     {
+      "id": 1813,
+      "n": "Brown",
+      "full": "Brown",
+      "p": 3.1,
+      "cap": false,
+      "vice": false
+     }
+    ]
+   ],
+   "bench": [
+    {
+     "id": 1300,
+     "n": "Mitchell",
+     "full": "Mitchell",
+     "p": 0.9,
+     "cap": false,
+     "vice": false
+    },
+    {
+     "id": 1309,
+     "n": "Taylor J",
+     "full": "Taylor J",
+     "p": 1.6,
+     "cap": false,
+     "vice": false
+    },
+    {
+     "id": 1411,
+     "n": "Reed L",
+     "full": "Reed L",
+     "p": 3.6,
+     "cap": false,
+     "vice": false
+    },
+    {
+     "id": 1102,
+     "n": "Rogers",
+     "full": "Rogers",
+     "p": 6.1,
+     "cap": false,
+     "vice": false
+    }
+   ]
+  },
+  "after_board": {
+   "xi": [
+    [
+     {
+      "id": 101,
+      "n": "Taylor B",
+      "full": "Taylor B",
+      "p": 1.2,
+      "cap": false,
+      "vice": false
+     }
+    ],
+    [
+     {
+      "id": 504,
+      "n": "Baker E",
+      "full": "Baker E",
+      "p": 4.6,
+      "cap": false,
+      "vice": false
+     },
+     {
+      "id": 705,
+      "n": "Jones",
+      "full": "Jones",
+      "p": 7.0,
+      "cap": false,
+      "vice": true
+     },
+     {
+      "id": 906,
+      "n": "Allen",
+      "full": "Allen",
+      "p": 3.3,
+      "cap": false,
+      "vice": false
+     },
+     {
+      "id": 1102,
+      "n": "Rogers",
+      "full": "Rogers",
+      "p": 6.1,
+      "cap": false,
+      "vice": false
+     }
+    ],
+    [
+     {
+      "id": 1210,
+      "n": "Walker K",
+      "full": "Walker K",
+      "p": 10.7,
+      "cap": true,
+      "vice": false
+     },
+     {
+      "id": 407,
+      "n": "Turner",
+      "full": "Turner",
+      "p": 3.3,
+      "cap": false,
+      "vice": false
+     },
+     {
+      "id": 808,
+      "n": "Collins",
+      "full": "Collins",
+      "p": 2.9,
+      "cap": false,
+      "vice": false
+     },
+     {
+      "id": 1411,
+      "n": "Reed L",
+      "full": "Reed L",
+      "p": 3.6,
+      "cap": false,
+      "vice": false
+     }
+    ],
+    [
+     {
+      "id": 1512,
+      "n": "Rogers",
+      "full": "Rogers",
+      "p": 2.6,
+      "cap": false,
+      "vice": false
+     },
+     {
+      "id": 1813,
+      "n": "Brown",
+      "full": "Brown",
+      "p": 3.1,
+      "cap": false,
+      "vice": false
+     }
+    ]
+   ],
+   "bench": [
+    {
+     "id": 1300,
+     "n": "Mitchell",
+     "full": "Mitchell",
+     "p": 0.9,
+     "cap": false,
+     "vice": false
+    },
+    {
+     "id": 203,
+     "n": "King",
+     "full": "King",
+     "p": 2.1,
+     "cap": false,
+     "vice": false
+    },
+    {
+     "id": 1309,
+     "n": "Taylor J",
+     "full": "Taylor J",
+     "p": 1.6,
+     "cap": false,
+     "vice": false
+    },
+    {
+     "id": 1614,
+     "n": "Adams O",
+     "full": "Adams O",
+     "p": 0.6,
+     "cap": false,
+     "vice": false
+    }
+   ]
+  },
+  "board_calls": [
+   {
+    "kind": "lineup",
+    "pairs": [
+     {
+      "on": 1102,
+      "off": 203
+     },
+     {
+      "on": 1411,
+      "off": 1614
+     }
+    ],
+    "label": "Rogers, Reed L on, King, Adams O off",
+    "n": 1
+   },
+   {
+    "kind": "transfer",
+    "sell": 1411,
+    "sell_name": "Reed L",
+    "buy_name": "Lewis",
+    "net": 4.3,
+    "hit": 0,
+    "label": "Sell Reed L, buy Lewis (+4 more in the plan)",
+    "n": 2
+   }
+  ],
+  "calls": [
+   {
+    "id": "cap",
+    "kind": "Captain",
+    "title": "Armband on Walker K",
+    "detail": "Already the model's top pick in your XI",
+    "gain": 0.0,
+    "done": true
+   },
+   {
+    "id": "sub",
+    "kind": "Lineup",
+    "title": "Reed L, Rogers on, King, Adams O off",
+    "detail": "Best formation from your 15: 4-4-2",
+    "gain": 7.008000000000003,
+    "done": false,
+    "shout": "King and Adams O starting? Get them off that pitch. Reed L and Rogers on. Now.",
+    "mutter": "Better. Now get Reed L and Rogers on for King and Adams O."
+   },
+   {
+    "id": "xfer",
+    "kind": "Transfer",
+    "title": "Sell Reed L, buy Lewis",
+    "detail": "Net +4.3 pts after costs, no hit",
+    "gain": 4.326,
+    "done": false,
+    "shout": "Why is Reed L still in my squad? Sell him. Today.",
+    "mutter": "Good. One more thing: Lewis. Go and sign him."
+   }
+  ],
+  "players": {
+   "101": {
+    "name": "Taylor B",
+    "team": "ARS",
+    "position": "GKP",
+    "price": 5.1,
+    "predicted": 1.2,
+    "horizon": 5.7,
+    "floor": 0.0,
+    "median": 0.8,
+    "ceiling": 6.8,
+    "haul": 0.041,
+    "fixtures": [
+     {
+      "gw": 8,
+      "opp": "MCI",
+      "home": true,
+      "grade": 1
+     },
+     {
+      "gw": 9,
+      "opp": "LIV",
+      "home": true,
+      "grade": 4
+     },
+     {
+      "gw": 11,
+      "opp": "FUL",
+      "home": true,
+      "grade": 5
+     },
+     {
+      "gw": 11,
+      "opp": "LEE",
+      "home": true,
+      "grade": 2
+     },
+     {
+      "gw": 12,
+      "opp": "EVE",
+      "home": true,
+      "grade": 5
+     }
+    ]
+   },
+   "203": {
+    "name": "King",
+    "team": "AVL",
+    "position": "DEF",
+    "price": 5.5,
+    "predicted": 2.1,
+    "horizon": 10.8,
+    "floor": 0.0,
+    "median": 1.4,
+    "ceiling": 7.4,
+    "haul": 0.07,
+    "fixtures": [
+     {
+      "gw": 8,
+      "opp": "BHA",
+      "home": true,
+      "grade": 2
+     },
+     {
+      "gw": 9,
+      "opp": "BOU",
+      "home": true,
+      "grade": 1
+     },
+     {
+      "gw": 10,
+      "opp": "WOL",
+      "home": false,
+      "grade": 2
+     },
+     {
+      "gw": 11,
+      "opp": "TOT",
+      "home": false,
+      "grade": 5
+     },
+     {
+      "gw": 12,
+      "opp": "NFO",
+      "home": false,
+      "grade": 3
+     }
+    ]
+   },
+   "504": {
+    "name": "Baker E",
+    "team": "BHA",
+    "position": "DEF",
+    "price": 6.2,
+    "predicted": 4.6,
+    "horizon": 20.9,
+    "floor": 0.0,
+    "median": 3.0,
+    "ceiling": 9.0,
+    "haul": 0.152,
+    "fixtures": [
+     {
+      "gw": 8,
+      "opp": "AVL",
+      "home": false,
+      "grade": 5
+     },
+     {
+      "gw": 9,
+      "opp": "WHU",
+      "home": false,
+      "grade": 5
+     },
+     {
+      "gw": 10,
+      "opp": "SUN",
+      "home": false,
+      "grade": 5
+     },
+     {
+      "gw": 11,
+      "opp": "NEW",
+      "home": false,
+      "grade": 1
+     },
+     {
+      "gw": 12,
+      "opp": "MCI",
+      "home": false,
+      "grade": 2
+     }
+    ]
+   },
+   "705": {
+    "name": "Jones",
+    "team": "CHE",
+    "position": "DEF",
+    "price": 8.6,
+    "predicted": 7.0,
+    "horizon": 34.9,
+    "floor": 4.0,
+    "median": 7.0,
+    "ceiling": 13.0,
+    "haul": 0.35,
+    "fixtures": [
+     {
+      "gw": 8,
+      "opp": "WHU",
+      "home": false,
+      "grade": 5
+     },
+     {
+      "gw": 9,
+      "opp": "SUN",
+      "home": false,
+      "grade": 5
+     },
+     {
+      "gw": 10,
+      "opp": "NEW",
+      "home": false,
+      "grade": 1
+     },
+     {
+      "gw": 11,
+      "opp": "MCI",
+      "home": false,
+      "grade": 2
+     },
+     {
+      "gw": 12,
+      "opp": "LEE",
+      "home": false,
+      "grade": 2
+     }
+    ]
+   },
+   "906": {
+    "name": "Allen",
+    "team": "EVE",
+    "position": "DEF",
+    "price": 6.4,
+    "predicted": 3.3,
+    "horizon": 15.4,
+    "floor": 0.3,
+    "median": 3.3,
+    "ceiling": 9.3,
+    "haul": 0.165,
+    "fixtures": [
+     {
+      "gw": 8,
+      "opp": "SUN",
+      "home": false,
+      "grade": 5
+     },
+     {
+      "gw": 9,
+      "opp": "NEW",
+      "home": false,
+      "grade": 1
+     },
+     {
+      "gw": 10,
+      "opp": "MCI",
+      "home": false,
+      "grade": 2
+     },
+     {
+      "gw": 11,
+      "opp": "LEE",
+      "home": false,
+      "grade": 3
+     },
+     {
+      "gw": 12,
+      "opp": "ARS",
+      "home": false,
+      "grade": 5
+     }
+    ]
+   },
+   "1210": {
+    "name": "Walker K",
+    "team": "LIV",
+    "position": "MID",
+    "price": 12.0,
+    "predicted": 10.7,
+    "horizon": 43.7,
+    "floor": 7.7,
+    "median": 10.7,
+    "ceiling": 16.7,
+    "haul": 0.537,
+    "fixtures": [
+     {
+      "gw": 8,
+      "opp": "MUN",
+      "home": false,
+      "grade": 5
+     },
+     {
+      "gw": 9,
+      "opp": "ARS",
+      "home": false,
+      "grade": 5
+     },
+     {
+      "gw": 10,
+      "opp": "FUL",
+      "home": true,
+      "grade": 5
+     },
+     {
+      "gw": 11,
+      "opp": "CRY",
+      "home": true,
+      "grade": 4
+     },
+     {
+      "gw": 12,
+      "opp": "BUR",
+      "home": true,
+      "grade": 5
+     }
+    ]
+   },
+   "407": {
+    "name": "Turner",
+    "team": "BRE",
+    "position": "MID",
+    "price": 7.8,
+    "predicted": 3.3,
+    "horizon": 17.4,
+    "floor": 0.3,
+    "median": 3.3,
+    "ceiling": 9.3,
+    "haul": 0.163,
+    "fixtures": [
+     {
+      "gw": 8,
+      "opp": "BOU",
+      "home": false,
+      "grade": 1
+     },
+     {
+      "gw": 9,
+      "opp": "WOL",
+      "home": false,
+      "grade": 2
+     },
+     {
+      "gw": 10,
+      "opp": "TOT",
+      "home": false,
+      "grade": 5
+     },
+     {
+      "gw": 11,
+      "opp": "NFO",
+      "home": false,
+      "grade": 1
+     },
+     {
+      "gw": 12,
+      "opp": "MUN",
+      "home": false,
+      "grade": 4
+     }
+    ]
+   },
+   "808": {
+    "name": "Collins",
+    "team": "CRY",
+    "position": "MID",
+    "price": 7.5,
+    "predicted": 2.9,
+    "horizon": 12.7,
+    "floor": 0.0,
+    "median": 2.9,
+    "ceiling": 8.9,
+    "haul": 0.145,
+    "fixtures": [
+     {
+      "gw": 8,
+      "opp": "TOT",
+      "home": false,
+      "grade": 4
+     },
+     {
+      "gw": 9,
+      "opp": "NFO",
+      "home": false,
+      "grade": 2
+     },
+     {
+      "gw": 10,
+      "opp": "MUN",
+      "home": false,
+      "grade": 5
+     },
+     {
+      "gw": 11,
+      "opp": "LIV",
+      "home": false,
+      "grade": 5
+     },
+     {
+      "gw": 12,
+      "opp": "FUL",
+      "home": false,
+      "grade": 5
+     }
+    ]
+   },
+   "1512": {
+    "name": "Rogers",
+    "team": "NEW",
+    "position": "FWD",
+    "price": 7.4,
+    "predicted": 2.6,
+    "horizon": 14.2,
+    "floor": 0.0,
+    "median": 2.6,
+    "ceiling": 8.6,
+    "haul": 0.129,
+    "fixtures": [
+     {
+      "gw": 8,
+      "opp": "LEE",
+      "home": true,
+      "grade": 2
+     },
+     {
+      "gw": 9,
+      "opp": "EVE",
+      "home": true,
+      "grade": 5
+     },
+     {
+      "gw": 10,
+      "opp": "CHE",
+      "home": true,
+      "grade": 1
+     },
+     {
+      "gw": 11,
+      "opp": "BHA",
+      "home": true,
+      "grade": 2
+     },
+     {
+      "gw": 12,
+      "opp": "BOU",
+      "home": true,
+      "grade": 1
+     }
+    ]
+   },
+   "1614": {
+    "name": "Adams O",
+    "team": "NFO",
+    "position": "FWD",
+    "price": 6.3,
+    "predicted": 0.6,
+    "horizon": 2.9,
+    "floor": 0.0,
+    "median": 0.6,
+    "ceiling": 6.6,
+    "haul": 0.03,
+    "fixtures": [
+     {
+      "gw": 8,
+      "opp": "FUL",
+      "home": true,
+      "grade": 5
+     },
+     {
+      "gw": 9,
+      "opp": "CRY",
+      "home": true,
+      "grade": 3
+     },
+     {
+      "gw": 10,
+      "opp": "BUR",
+      "home": true,
+      "grade": 4
+     },
+     {
+      "gw": 11,
+      "opp": "BRE",
+      "home": true,
+      "grade": 1
+     },
+     {
+      "gw": 12,
+      "opp": "AVL",
+      "home": true,
+      "grade": 5
+     }
+    ]
+   },
+   "1813": {
+    "name": "Brown",
+    "team": "TOT",
+    "position": "FWD",
+    "price": 8.0,
+    "predicted": 3.1,
+    "horizon": 15.5,
+    "floor": 0.1,
+    "median": 3.1,
+    "ceiling": 9.1,
+    "haul": 0.156,
+    "fixtures": [
+     {
+      "gw": 8,
+      "opp": "CRY",
+      "home": true,
+      "grade": 3
+     },
+     {
+      "gw": 9,
+      "opp": "BUR",
+      "home": true,
+      "grade": 4
+     },
+     {
+      "gw": 10,
+      "opp": "BRE",
+      "home": true,
+      "grade": 1
+     },
+     {
+      "gw": 11,
+      "opp": "AVL",
+      "home": true,
+      "grade": 5
+     },
+     {
+      "gw": 12,
+      "opp": "WHU",
+      "home": true,
+      "grade": 4
+     }
+    ]
+   },
+   "1300": {
+    "name": "Mitchell",
+    "team": "MCI",
+    "position": "GKP",
+    "price": 5.0,
+    "predicted": 0.9,
+    "horizon": 4.8,
+    "floor": 0.0,
+    "median": 0.9,
+    "ceiling": 6.9,
+    "haul": 0.047,
+    "fixtures": [
+     {
+      "gw": 8,
+      "opp": "ARS",
+      "home": false,
+      "grade": 5
+     },
+     {
+      "gw": 9,
+      "opp": "LEE",
+      "home": true,
+      "grade": 2
+     },
+     {
+      "gw": 10,
+      "opp": "EVE",
+      "home": true,
+      "grade": 5
+     },
+     {
+      "gw": 11,
+      "opp": "CHE",
+      "home": true,
+      "grade": 1
+     },
+     {
+      "gw": 12,
+      "opp": "BHA",
+      "home": true,
+      "grade": 2
+     }
+    ]
+   },
+   "1309": {
+    "name": "Taylor J",
+    "team": "MCI",
+    "position": "MID",
+    "price": 6.4,
+    "predicted": 1.6,
+    "horizon": 8.2,
+    "floor": 0.0,
+    "median": 1.6,
+    "ceiling": 7.6,
+    "haul": 0.081,
+    "fixtures": [
+     {
+      "gw": 8,
+      "opp": "ARS",
+      "home": false,
+      "grade": 5
+     },
+     {
+      "gw": 9,
+      "opp": "LEE",
+      "home": true,
+      "grade": 2
+     },
+     {
+      "gw": 10,
+      "opp": "EVE",
+      "home": true,
+      "grade": 5
+     },
+     {
+      "gw": 11,
+      "opp": "CHE",
+      "home": true,
+      "grade": 1
+     },
+     {
+      "gw": 12,
+      "opp": "BHA",
+      "home": true,
+      "grade": 2
+     }
+    ]
+   },
+   "1411": {
+    "name": "Reed L",
+    "team": "MUN",
+    "position": "MID",
+    "price": 8.2,
+    "predicted": 3.6,
+    "horizon": 17.2,
+    "floor": 0.6,
+    "median": 3.6,
+    "ceiling": 9.6,
+    "haul": 0.179,
+    "fixtures": [
+     {
+      "gw": 8,
+      "opp": "LIV",
+      "home": true,
+      "grade": 5
+     },
+     {
+      "gw": 9,
+      "opp": "FUL",
+      "home": true,
+      "grade": 5
+     },
+     {
+      "gw": 10,
+      "opp": "CRY",
+      "home": true,
+      "grade": 3
+     },
+     {
+      "gw": 11,
+      "opp": "BUR",
+      "home": true,
+      "grade": 4
+     },
+     {
+      "gw": 12,
+      "opp": "BRE",
+      "home": true,
+      "grade": 1
+     }
+    ]
+   },
+   "1102": {
+    "name": "Rogers",
+    "team": "LEE",
+    "position": "DEF",
+    "price": 7.9,
+    "predicted": 6.1,
+    "horizon": 32.5,
+    "floor": 3.1,
+    "median": 6.1,
+    "ceiling": 12.1,
+    "haul": 0.306,
+    "fixtures": [
+     {
+      "gw": 8,
+      "opp": "NEW",
+      "home": false,
+      "grade": 1
+     },
+     {
+      "gw": 9,
+      "opp": "MCI",
+      "home": false,
+      "grade": 1
+     },
+     {
+      "gw": 11,
+      "opp": "ARS",
+      "home": false,
+      "grade": 4
+     },
+     {
+      "gw": 11,
+      "opp": "EVE",
+      "home": true,
+      "grade": 5
+     },
+     {
+      "gw": 12,
+      "opp": "CHE",
+      "home": true,
+      "grade": 1
+     }
+    ]
+   }
+  },
+  "plans": {
+   "1gw": {
+    "horizon": "1gw",
+    "runs_if_silent": true,
+    "value": "predicted points next gameweek",
+    "transfers": [
+     {
+      "order": 1,
+      "sell": {
+       "player_code": 1411,
+       "web_name": "Reed L",
+       "position": "MID",
+       "team": "MUN",
+       "price": 8.2,
+       "value": 3.59
+      },
+      "buy": {
+       "player_code": 708,
+       "web_name": "Lewis",
+       "position": "MID",
+       "team": "CHE",
+       "price": 9.6,
+       "value": 7.92
+      },
+      "gain": 4.33,
+      "hit_cost": 0,
+      "net": 4.33,
+      "uses_free_transfer": true
+     },
+     {
+      "order": 2,
+      "sell": {
+       "player_code": 407,
+       "web_name": "Turner",
+       "position": "MID",
+       "team": "BRE",
+       "price": 7.8,
+       "value": 3.27
+      },
+      "buy": {
+       "player_code": 2007,
+       "web_name": "Parker",
+       "position": "MID",
+       "team": "WOL",
+       "price": 7.7,
+       "value": 4.26
+      },
+      "gain": 1.0,
+      "hit_cost": 0,
+      "net": 1.0,
+      "uses_free_transfer": true
+     },
+     {
+      "order": 3,
+      "sell": {
+       "player_code": 906,
+       "web_name": "Allen",
+       "position": "DEF",
+       "team": "EVE",
+       "price": 6.4,
+       "value": 3.29
+      },
+      "buy": {
+       "player_code": 103,
+       "web_name": "Jones",
+       "position": "DEF",
+       "team": "ARS",
+       "price": 6.6,
+       "value": 4.01
+      },
+      "gain": 0.72,
+      "hit_cost": 0,
+      "net": 0.72,
+      "uses_free_transfer": true
+     },
+     {
+      "order": 4,
+      "sell": {
+       "player_code": 808,
+       "web_name": "Collins",
+       "position": "MID",
+       "team": "CRY",
+       "price": 7.5,
+       "value": 2.9
+      },
+      "buy": {
+       "player_code": 209,
+       "web_name": "Hill",
+       "position": "MID",
+       "team": "AVL",
+       "price": 7.5,
+       "value": 3.62
+      },
+      "gain": 0.71,
+      "hit_cost": 0,
+      "net": 0.71,
+      "uses_free_transfer": true
+     },
+     {
+      "order": 5,
+      "sell": {
+       "player_code": 1813,
+       "web_name": "Brown",
+       "position": "FWD",
+       "team": "TOT",
+       "price": 8.0,
+       "value": 3.13
+      },
+      "buy": {
+       "player_code": 1612,
+       "web_name": "Walker M",
+       "position": "FWD",
+       "team": "NFO",
+       "price": 8.0,
+       "value": 3.69
+      },
+      "gain": 0.57,
+      "hit_cost": 0,
+      "net": 0.57,
+      "uses_free_transfer": true
+     }
+    ],
+    "total_net_gain": 7.32,
+    "total_hit_cost": 0,
+    "free_transfers": 5,
+    "bank_before": 1.5,
+    "bank_after": 0.0,
+    "xi_points_before": 59.14,
+    "xi_points_after": 66.46
+   },
+   "5gw": {
+    "horizon": "5gw",
+    "runs_if_silent": false,
+    "value": "fixture-weighted points over 5 gameweeks",
+    "transfers": [
+     {
+      "order": 1,
+      "sell": {
+       "player_code": 1411,
+       "web_name": "Reed L",
+       "position": "MID",
+       "team": "MUN",
+       "price": 8.2,
+       "value": 17.24
+      },
+      "buy": {
+       "player_code": 1908,
+       "web_name": "Evans",
+       "position": "MID",
+       "team": "WHU",
+       "price": 9.3,
+       "value": 41.12
+      },
+      "gain": 23.89,
+      "hit_cost": 0,
+      "net": 23.89,
+      "uses_free_transfer": true
+     },
+     {
+      "order": 2,
+      "sell": {
+       "player_code": 808,
+       "web_name": "Collins",
+       "position": "MID",
+       "team": "CRY",
+       "price": 7.5,
+       "value": 12.68
+      },
+      "buy": {
+       "player_code": 2007,
+       "web_name": "Parker",
+       "position": "MID",
+       "team": "WOL",
+       "price": 7.7,
+       "value": 20.86
+      },
+      "gain": 8.18,
+      "hit_cost": 0,
+      "net": 8.18,
+      "uses_free_transfer": true
+     },
+     {
+      "order": 3,
+      "sell": {
+       "player_code": 1210,
+       "web_name": "Walker K",
+       "position": "MID",
+       "team": "LIV",
+       "price": 12.0,
+       "value": 43.72
+      },
+      "buy": {
+       "player_code": 207,
+       "web_name": "Silva",
+       "position": "MID",
+       "team": "AVL",
+       "price": 10.6,
+       "value": 50.12
+      },
+      "gain": 6.4,
+      "hit_cost": 0,
+      "net": 6.4,
+      "uses_free_transfer": true
+     },
+     {
+      "order": 4,
+      "sell": {
+       "player_code": 407,
+       "web_name": "Turner",
+       "position": "MID",
+       "team": "BRE",
+       "price": 7.8,
+       "value": 17.42
+      },
+      "buy": {
+       "player_code": 1408,
+       "web_name": "Edwards",
+       "position": "MID",
+       "team": "MUN",
+       "price": 9.2,
+       "value": 33.7
+      },
+      "gain": 16.28,
+      "hit_cost": 0,
+      "net": 16.28,
+      "uses_free_transfer": true
+     },
+     {
+      "order": 5,
+      "sell": {
+       "player_code": 906,
+       "web_name": "Allen",
+       "position": "DEF",
+       "team": "EVE",
+       "price": 6.4,
+       "value": 15.42
+      },
+      "buy": {
+       "player_code": 1906,
+       "web_name": "Green",
+       "position": "DEF",
+       "team": "WHU",
+       "price": 6.4,
+       "value": 21.26
+      },
+      "gain": 5.84,
+      "hit_cost": 0,
+      "net": 5.84,
+      "uses_free_transfer": true
+     }
+    ],
+    "total_net_gain": 60.58,
+    "total_hit_cost": 0,
+    "free_transfers": 5,
+    "bank_before": 1.5,
+    "bank_after": 0.2,
+    "xi_points_before": 273.88,
+    "xi_points_after": 340.85
+   }
+  },
+  "outcomes": {
+   "samples": 10000,
+   "p10": 48.5,
+   "p50": 62.8,
+   "p90": 78.8,
+   "mean": 63.3,
+   "p_beat_60": 0.597,
+   "p_beat_80": 0.084,
+   "edges": [
+    27.01,
+    29.27,
+    31.54,
+    33.8,
+    36.06,
+    38.32,
+    40.58,
+    42.84,
+    45.1,
+    47.36,
+    49.62,
+    51.88,
+    54.14,
+    56.4,
+    58.66,
+    60.92,
+    63.18,
+    65.44,
+    67.7,
+    69.96,
+    72.22,
+    74.48,
+    76.74,
+    79.0,
+    81.26,
+    83.52,
+    85.78,
+    88.04,
+    90.3,
+    92.56,
+    94.83,
+    97.09,
+    99.35,
+    101.61,
+    103.87,
+    106.13,
+    108.39
+   ],
+   "counts": [
+    3,
+    4,
+    10,
+    27,
+    44,
+    92,
+    137,
+    224,
+    279,
+    405,
+    515,
+    562,
+    627,
+    668,
+    734,
+    769,
+    734,
+    705,
+    622,
+    538,
+    542,
+    430,
+    352,
+    282,
+    224,
+    145,
+    110,
+    73,
+    53,
+    37,
+    28,
+    13,
+    8,
+    1,
+    1,
+    2
+   ]
+  }
+ }
+}
