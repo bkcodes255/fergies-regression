@@ -508,28 +508,43 @@ revert anything already submitted to FPL.
 
 ## Tools server (read-only, v0.1)
 
-`src/tools_server/` lets other agents - Muse through a custom connector, Claude through MCP - read
-the app's data and plans without being able to change anything. One server, two faces over the
-same ten tools: MCP (streamable HTTP) at `/mcp`, and REST at `POST /v1/tools/<name>` with
-`GET /v1/tools` listing every tool and its input schema.
+Lets other agents - Muse through a custom connector, Claude later - read the app's data and plans
+without being able to change anything. Ten tools: `get_status` (data freshness and warnings -
+check first), `get_current_gameweek`, `get_squad`, `search_players`, `get_top_predictions`,
+`get_transfer_plan`, `get_lineup_plan`, `get_fixtures`, `get_pending_approvals`,
+`get_gameweek_review`.
 
-Tools: `get_status` (data freshness and warnings - check first), `get_current_gameweek`,
-`get_squad`, `search_players`, `get_top_predictions`, `get_transfer_plan`, `get_lineup_plan`,
-`get_fixtures`, `get_pending_approvals`, `get_gameweek_review`. The plan tools call
-`src/recommendations/gameweek_plan.py`, the same code the Telegram approval flow proposes and
-auto-submits from, so an agent explains the plan that would actually run.
+**How it fits together.** Planning stays in Python. The last step of `ingest_and_predict.yml`
+(`src/recommendations/plan_snapshots.py`) stores both transfer plans, the lineup built on the
+squad after each, and every player's 5-gameweek points in `transfer_plans`, `lineup_plans` and
+`player_horizons` (`sql/plan_snapshots.sql`). The Supabase Edge Function
+`supabase/functions/tools` only reads - no planning logic in TypeScript. The plan JSON is built by
+`src/recommendations/plan_payloads.py`, the same code `src/tools_server` (the Python reference
+implementation, REST + MCP) returns live; the two are tested field for field against each other.
 
-Read-only three ways: the `fergies_tools` role (`sql/tools_server_role.sql`) has SELECT on only
-the tables and views the tools read, it defaults every transaction to read-only, and the server
-opens each call with `SET TRANSACTION READ ONLY`. Every route except `/healthz` needs
-`Authorization: Bearer <key>` from `TOOLS_SERVER_API_KEYS`; the server won't start without one.
+**Read-only three ways:** the function connects as `fergies_tools` (`sql/tools_server_role.sql`:
+SELECT on only what the tools read, read-only by default), every call is a READ ONLY transaction,
+and it never uses the service-role key. Every route except `healthz` needs
+`Authorization: Bearer <key>` from `TOOLS_API_KEYS`; with no valid key it refuses everything.
 
-```bash
-python scripts/check_tools_server.py   # call every tool against your database, no server
-python -m src.tools_server             # serve on :8080 (PORT to change)
+```
+POST https://<project>.supabase.co/functions/v1/tools/invoke   {"tool": "get_squad", "arguments": {}}
+GET  https://<project>.supabase.co/functions/v1/tools/catalog  every tool and its input schema
 ```
 
-Not hosted yet: where and how it runs is still open.
+Setting it up (once, in this order):
+1. Run `sql/plan_snapshots.sql`, then `sql/tools_server_role.sql`, as postgres; then
+   `ALTER ROLE fergies_tools PASSWORD '...'`.
+2. Merge, so the ingest job starts writing snapshots (until step 1 is done it skips them).
+3. `supabase secrets set TOOLS_DATABASE_URL=... TOOLS_API_KEYS=... FPL_SEASON=2026-27 FPL_ENTRY_ID=...`
+   - `TOOLS_DATABASE_URL` is the pooler URL for `fergies_tools` (transaction mode, port 6543).
+   - Generate each key with `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
+4. `supabase functions deploy tools --no-verify-jwt` - callers bring their own API key, not a
+   Supabase JWT, so the gateway's JWT check has to be off or every call is rejected before it
+   reaches the function.
+
+`python scripts/check_tools_server.py` calls every Python tool against your database without
+starting anything.
 
 ## Build phases
 
