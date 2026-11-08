@@ -1,0 +1,32 @@
+{
+ "generated_at": "2026-11-08T09:00:00+00:00",
+ "season": "2026-27",
+ "summary": {
+  "total_points": 612,
+  "overall_rank": 482113,
+  "average_points": 55.6,
+  "best_gw": { "gw": 7, "points": 81 },
+  "bench_points": 38,
+  "gameweeks_played": 11
+ },
+ "gameweeks": [
+  { "gw": 1, "actual": 49, "model": null, "fpl": null, "delta": null, "average": 52, "highest": 118, "percentile": 71 },
+  { "gw": 2, "actual": 58, "model": 54.2, "fpl": 57.1, "delta": 3.8, "average": 49, "highest": 124, "percentile": 28 },
+  { "gw": 3, "actual": 44, "model": 56.0, "fpl": 52.4, "delta": -12, "average": 51, "highest": 109, "percentile": 66 },
+  { "gw": 4, "actual": 63, "model": 55.5, "fpl": null, "delta": 7.5, "average": 53, "highest": 131, "percentile": 33 },
+  { "gw": 5, "actual": 52, "model": 57.3, "fpl": 61.8, "delta": -5.3, "average": 54, "highest": 120, "percentile": 52 },
+  { "gw": 6, "actual": 47, "model": 53.9, "fpl": 50.2, "delta": -6.9, "average": 50, "highest": 112, "percentile": 58 },
+  { "gw": 7, "actual": 81, "model": 58.8, "fpl": 56.0, "delta": 22.2, "average": 56, "highest": 140, "percentile": 9 },
+  { "gw": 8, "actual": 55, "model": 59.1, "fpl": 62.3, "delta": -4.1, "average": 52, "highest": 115, "percentile": 41 },
+  { "gw": 9, "actual": 60, "model": 54.7, "fpl": 55.9, "delta": 5.3, "average": 55, "highest": 126, "percentile": 36 },
+  { "gw": 10, "actual": 51, "model": 56.4, "fpl": 58.0, "delta": -5.4, "average": 53, "highest": 119, "percentile": 49 },
+  { "gw": 11, "actual": 52, "model": 55.2, "fpl": 54.6, "delta": -3.2, "average": 51, "highest": 117, "percentile": 47 }
+ ],
+ "accuracy": {
+  "weeks": 9,
+  "beats": 5,
+  "model_error": 7.3,
+  "fpl_error": 7.9,
+  "biggest_miss": { "gw": 7, "predicted": 59, "actual": 81, "gap": 22 }
+ }
+}
