@@ -10,6 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const PRIVATE_KEYS = [
   "board_calls", "after_board", "free_transfers", "bank_before", "bank_after", "runs_if_silent",
   "hit_cost", "total_hit_cost", "total_net_gain", "uses_free_transfer", "xi_points_before", "xi_points_after",
+  "overall_rank", "bench_points", "gameweeks_played",
 ];
 const PRIVATE_FILES = ["this-week.json", "sample-this-week.json", "season.json", "sample-season.json"];
 const PRIVATE_DIRS = new Set(["this-week", "season"]);

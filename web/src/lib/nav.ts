@@ -1,5 +1,5 @@
 // The site's pages. gated pages show Brian's own squad and sit behind the login; everything else
-// is public. functions/_middleware.js keeps its own allow-list of public paths: a page missing
+// is public. server/routes.js keeps its own allow-list of public paths: a page missing
 // from that list needs a login, so forgetting to add one fails safe.
 export interface NavItem { label: string; href: string; gated: boolean }
 
