@@ -1,6 +1,146 @@
 ---
 import Base from "../layouts/Base.astro";
+import { load } from "../lib/data";
+import { cell, range, type PlayersPage } from "../lib/pages/players";
+const { data, isSample } = load<PlayersPage>("players");
+const rows = data.players;
+const positions = ["GKP", "DEF", "MID", "FWD"];
+const gw = data.predicted_gw;
+const cols: { label: string; num: boolean }[] = [
+  { label: "Player", num: false }, { label: "Pos", num: false }, { label: "Team", num: false },
+  { label: "Price £m", num: true }, { label: "Next GW", num: true }, { label: `Next ${data.horizon} GWs`, num: true },
+  { label: "Floor–Ceiling", num: true }, { label: "Ceiling %", num: true }, { label: "Pts per £m", num: true },
+  { label: "Total pts", num: true }, { label: "Owned %", num: true },
+];
 ---
-<Base title="Players" active="Players">
-  <p class="muted">Not built yet.</p>
+<Base title="Players" active="Players" sample={isSample}>
+  <div class="players-page">
+  <p class="eyebrow">Players</p>
+  <h1>{rows.length} available</h1>
+  <p class="muted intro">
+    The model's predicted points{gw !== null && <> for gameweek {gw}</>}, and for the next {data.horizon} gameweeks, with a
+    floor-to-ceiling range. Ceiling % is the chance of a 10-point haul, from a separate model, not worked out from the range.
+  </p>
+
+  <form class="controls" data-controls hidden onsubmit="return false">
+    <label>Search <input type="search" name="q" autocomplete="off" placeholder="Name or team" /></label>
+    <label>Position
+      <select name="pos">
+        <option value="">All</option>
+        {positions.map((p) => <option value={p}>{p}</option>)}
+      </select>
+    </label>
+    <p class="muted" role="status" aria-live="polite" data-count></p>
+  </form>
+
+  <div class="scroll card" tabindex="0" role="region" aria-label="Players table">
+    <table data-players>
+      <caption class="sr-only">Players, best predicted first. Column headings sort the table when scripts are on.</caption>
+      <thead>
+        <tr>{cols.map((c) => <th scope="col" data-num={c.num ? "" : undefined}>{c.label}</th>)}</tr>
+      </thead>
+      <tbody>
+        {rows.map((p) => (
+          <tr data-pos={p.pos}>
+            <th scope="row">{p.name}</th>
+            <td>{p.pos}</td>
+            <td>{p.team}</td>
+            <td>{cell(p.price)}</td>
+            <td>{cell(p.pred)}</td>
+            <td>{cell(p.horizon)}</td>
+            <td data-v={p.ceil ?? ""}>{range(p)}</td>
+            <td>{cell(p.haul, 0)}</td>
+            <td>{cell(p.value, 2)}</td>
+            <td>{cell(p.pts, 0)}</td>
+            <td>{cell(p.owned)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    {rows.length === 0 && <p class="muted empty">No player predictions yet. They appear after the next data refresh.</p>}
+  </div>
+  </div>
 </Base>
+
+<script>
+  const table = document.querySelector<HTMLTableElement>("table[data-players]")!;
+  const form = document.querySelector<HTMLFormElement>("form[data-controls]")!;
+  const body = table.tBodies[0];
+  const rows = Array.from(body.rows);
+  const heads = Array.from(table.tHead!.rows[0].cells);
+  const count = form.querySelector<HTMLElement>("[data-count]")!;
+  const q = form.elements.namedItem("q") as HTMLInputElement;
+  const pos = form.elements.namedItem("pos") as HTMLSelectElement;
+  // Search text is computed once: the name and team cells, lower-cased.
+  const hay = new Map(rows.map((r) => [r, `${r.cells[0].textContent} ${r.cells[2].textContent}`.toLowerCase()]));
+
+  function filter() {
+    const needle = q.value.trim().toLowerCase();
+    let shown = 0;
+    for (const r of rows) {
+      const ok = (!pos.value || r.dataset.pos === pos.value) && (!needle || hay.get(r)!.includes(needle));
+      r.hidden = !ok;
+      if (ok) shown++;
+    }
+    count.textContent = `Showing ${shown} of ${rows.length}`;
+  }
+
+  // Missing values ("—") sort last whichever way round.
+  const value = (r: HTMLTableRowElement, i: number, num: boolean) => {
+    const c = r.cells[i];
+    const raw = c.dataset.v ?? c.textContent ?? "";
+    if (!num) return raw.toLowerCase();
+    const n = parseFloat(raw);
+    return Number.isNaN(n) ? null : n;
+  };
+  function sortBy(i: number) {
+    const num = heads[i].hasAttribute("data-num");
+    const dir = heads[i].getAttribute("aria-sort") === (num ? "descending" : "ascending") ? -1 : 1; // first click: best first
+    const asc = num ? dir === -1 : dir === 1;
+    const keyed = rows.map((r) => [r, value(r, i, num)] as const);
+    keyed.sort(([, a], [, b]) => {
+      if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
+      return (a < b ? -1 : a > b ? 1 : 0) * (asc ? 1 : -1);
+    });
+    body.append(...keyed.map(([r]) => r));
+    heads.forEach((h, j) => (j === i ? h.setAttribute("aria-sort", asc ? "ascending" : "descending") : h.removeAttribute("aria-sort")));
+  }
+
+  heads.forEach((h, i) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = h.textContent;
+    b.addEventListener("click", () => sortBy(i));
+    h.replaceChildren(b);
+  });
+  heads[4].setAttribute("aria-sort", "descending"); // the order the data arrives in
+  form.hidden = false;
+  form.addEventListener("input", filter);
+  filter();
+</script>
+
+<style is:global>
+  /* Global on purpose: scoped styles stamp an attribute on every cell, which adds up over several hundred rows. */
+  .players-page h1 { font: 900 clamp(30px, 5vw, 40px)/1 var(--display); text-transform: uppercase; }
+  .players-page .intro { margin: 8px 0 18px; max-width: 68ch; }
+  .players-page .controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; margin-bottom: 14px; }
+  .players-page .controls[hidden] { display: none; }
+  .players-page .controls label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  .players-page .controls input, .players-page .controls select { font: inherit; color: var(--ink); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-height: 40px; }
+  .players-page .controls p { font-size: 13px; padding-bottom: 10px; }
+  .players-page .scroll { overflow: auto; max-height: 75vh; }
+  .players-page table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  .players-page th, .players-page td { padding: 8px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
+  .players-page thead th { position: sticky; top: 0; background: var(--surface-2); font-size: 12px; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--muted); z-index: 1; }
+  .players-page tbody th { text-align: left; font-weight: 700; position: sticky; left: 0; background: var(--surface); }
+  .players-page th:nth-child(1), .players-page th:nth-child(2), .players-page th:nth-child(3),
+  .players-page td:nth-child(2), .players-page td:nth-child(3) { text-align: left; }
+  .players-page thead th button { all: unset; cursor: pointer; text-transform: inherit; letter-spacing: inherit; }
+  .players-page thead th button:focus-visible { outline: 3px solid var(--marker); outline-offset: 2px; }
+  .players-page thead th[aria-sort] { color: var(--marker); }
+  .players-page thead th[aria-sort="ascending"] button::after { content: " ▲"; font-size: 10px; }
+  .players-page thead th[aria-sort="descending"] button::after { content: " ▼"; font-size: 10px; }
+  .players-page .empty { padding: 20px; }
+</style>

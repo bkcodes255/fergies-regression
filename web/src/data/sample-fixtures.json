@@ -1,0 +1,28 @@
+{
+  "start_gw": 12,
+  "horizon": 5,
+  "gws": [12, 13, 14, 15, 16],
+  "teams": [
+    {"team": "AAA", "avg": -0.42, "run": "Easy", "cells": [
+      {"grade": 1, "fx": [{"opp": "DDD", "home": true, "grade": 1}]},
+      {"grade": 2, "fx": [{"opp": "EEE", "home": false, "grade": 2}]},
+      {"grade": 2, "fx": [{"opp": "CCC", "home": true, "grade": 3}, {"opp": "FFF", "home": false, "grade": 1}]},
+      {"grade": 1, "fx": [{"opp": "BBB", "home": true, "grade": 1}]},
+      null
+    ]},
+    {"team": "BBB", "avg": 0.02, "run": "Mixed", "cells": [
+      {"grade": 3, "fx": [{"opp": "FFF", "home": false, "grade": 3}]},
+      {"grade": 3, "fx": [{"opp": "DDD", "home": true, "grade": 3}]},
+      {"grade": 4, "fx": [{"opp": "EEE", "home": false, "grade": 4}]},
+      {"grade": 4, "fx": [{"opp": "AAA", "home": false, "grade": 4}]},
+      {"grade": 1, "fx": [{"opp": "CCC", "home": true, "grade": 1}]}
+    ]},
+    {"team": "CCC", "avg": 0.38, "run": "Brutal", "cells": [
+      {"grade": 5, "fx": [{"opp": "EEE", "home": false, "grade": 5}]},
+      {"grade": 4, "fx": [{"opp": "FFF", "home": true, "grade": 4}]},
+      {"grade": 3, "fx": [{"opp": "AAA", "home": false, "grade": 3}]},
+      {"grade": 5, "fx": [{"opp": "DDD", "home": false, "grade": 5}]},
+      {"grade": 5, "fx": [{"opp": "BBB", "home": false, "grade": 5}]}
+    ]}
+  ]
+}
