@@ -32,7 +32,7 @@ const gbp = (n: number) => `£${n.toFixed(1)}m`;
       </fieldset>
     </div>
 
-    <div data-result aria-live="polite">
+    <div data-result>
       {v.found ? (
         <>
           <div class="tiles">
@@ -43,7 +43,7 @@ const gbp = (n: number) => `£${n.toFixed(1)}m`;
             <div class="scroll">
               <table>
                 <caption>Starting XI</caption>
-                <thead><tr><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Pos</th><th scope="col" class="n">Price</th><th scope="col" class="n" data-ptshead>Pts, {v.basis}</th></tr></thead>
+                <thead><tr><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Pos</th><th scope="col" class="n">Price</th><th scope="col" class="n" data-ptshead>Pts</th></tr></thead>
                 <tbody data-xi>
                   {v.xi.map((r) => (
                     <tr><th scope="row">{r.name}{r.cap && <span class="cap" title="Captain"> (C)<span class="sr-only"> captain</span></span>}</th>
@@ -143,7 +143,7 @@ const gbp = (n: number) => `£${n.toFixed(1)}m`;
       const tiles = h("div", undefined, "tiles");
       tiles.append(tile("Projected XI points", v.pts.toFixed(1), "Captain doubled"), tile("Spend", gbp(v.spend), `${gbp(v.unspent)} unspent`));
       const tables = h("div", undefined, "tables");
-      tables.append(table("Starting XI", `Pts, ${v.basis}`, v.xi, true), table("Bench", "Pts", v.bench, false));
+      tables.append(table("Starting XI", "Pts", v.xi, true), table("Bench", "Pts", v.bench, false));
       result.append(tiles, tables, h("p",
         `Points are the model's prediction for the ${basisLabel(key, data.horizon)}. Spend £${v.spend.toFixed(1)}m of a £${v.budget.toFixed(1)}m budget.`,
         "muted cap-note"));
@@ -151,7 +151,8 @@ const gbp = (n: number) => `£${n.toFixed(1)}m`;
 
     controls.hidden = false;
     controls.addEventListener("input", draw);
-    controls.addEventListener("change", draw);
+    // After load and on back-navigation, when a browser may have restored the controls' state.
+    window.addEventListener("pageshow", draw);
   }
 </script>
 

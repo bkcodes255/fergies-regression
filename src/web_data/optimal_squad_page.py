@@ -107,6 +107,12 @@ def _players(rankings: pd.DataFrame, solved: dict) -> dict:
 
 def build(rankings: pd.DataFrame, season: str, budgets: list[float] = BUDGETS) -> dict:
     solved = solve_all(rankings, budgets)
+    top = budgets.index(max(budgets))
+    for key, solution in solved.items():
+        # The top budget always has an answer unless the solver itself is broken. Stop the deploy
+        # here: solve_all contains errors, so without this an empty page would ship.
+        if solution["by_budget"][top] is None:
+            raise RuntimeError(f"optimal-squad: no squad for '{key}' at the top budget of {budgets[top]}.")
     predicted_gw = rankings["predicted_gw"].dropna().max() if not rankings.empty else None
     return {
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),

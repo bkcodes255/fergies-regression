@@ -40,17 +40,15 @@ class PlayersExport(unittest.TestCase):
 
     def test_only_available_players_best_first_and_rounded(self):
         out = self.run_payload()
-        self.assertEqual([p["name"] for p in out["players"]], ["High", "Low", "Blank"])
+        self.assertEqual([p["name"] for p in out["players"]], ["High", "Low"])
         low = out["players"][1]
         self.assertEqual((low["price"], low["pred"], low["horizon"], low["ceil"]), (5.0, 3.0, 12.3, 6.5))
         self.assertEqual((low["haul"], low["value"], low["owned"], low["pts"]), (23, 0.6, 12.3, 40))
         self.assertEqual(out["predicted_gw"], 12)
 
-    def test_missing_predictions_are_null_and_json_is_strict(self):
+    def test_unpredicted_players_are_left_out_and_json_is_strict(self):
         out = self.run_payload()
-        blank = out["players"][2]
-        self.assertIsNone(blank["pred"])
-        self.assertIsNone(blank["haul"])
+        self.assertNotIn("Blank", [p["name"] for p in out["players"]])
         json.dumps(out, allow_nan=False)
 
     def test_no_rankings_gives_an_empty_page(self):

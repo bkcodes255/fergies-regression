@@ -8,7 +8,7 @@ const label = data.deadline ? `Deadline · ${ukTime(data.deadline.time)}` : "No 
 ---
 <div class="bar" role="banner">
   <div class="gw">{gw}</div>
-  <div class="title"><h1>Fergie's Regression · Team talk</h1><span>{meta}</span></div>
+  <div class="title"><h1>Fergie's Regression</h1><span>{meta}</span></div>
   <div class="clock" data-deadline={data.deadline?.time ?? ""}>
     <small>{label}</small>
     <b aria-live="off">—</b>

@@ -29,7 +29,7 @@ import numpy as np  # noqa: E402
 
 from src.features.historical_features import FEATURE_COLS, build_training_frame  # noqa: E402
 from src.models.experiment import (  # noqa: E402
-    MODEL_TYPES, OVERFIT_GAP_THRESHOLD, evaluate_feature_subset, paired_bootstrap_p_value,
+    MODEL_TYPES, N_BOOTSTRAP, OVERFIT_GAP_THRESHOLD, evaluate_feature_subset, paired_bootstrap_p_value,
 )
 from src.models.train import TEST_SEASON, TRAIN_SEASONS, direct_points_baseline  # noqa: E402
 
@@ -159,7 +159,7 @@ def build_payload(df, all_features: list[str], sample_frac: float | None = None)
         "n_train": n_train, "n_test": n_test,
         "sample_frac": sample_frac,
         "n_features": len(all_features),
-        "bootstrap_draws": 1000,
+        "bootstrap_draws": N_BOOTSTRAP,
         "overfit_gap_threshold": OVERFIT_GAP_THRESHOLD,
         "groups": [{"name": n, "features": c} for n, c in groups.items()],
         "reference": ref_summary,

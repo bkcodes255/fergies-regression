@@ -25,7 +25,9 @@ def payload(conn, season: str) -> dict:
     predicted_gw = rankings["predicted_gw"].dropna().max() if not rankings.empty else None
     if not rankings.empty:
         rankings = with_horizon(conn, rankings, season)
-        rankings = rankings[rankings["status"] == "a"]
+        # >= 0 as well as the status, as the Streamlit table's default filter: a player with no
+        # prediction fails it, so a new signing isn't listed as a row of dashes.
+        rankings = rankings[(rankings["status"] == "a") & (rankings["predicted_points"] >= 0)]
         rankings = rankings.sort_values("predicted_points", ascending=False, na_position="last", kind="mergesort")
     players = []
     for r in rankings.itertuples(index=False):

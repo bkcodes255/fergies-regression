@@ -16,7 +16,7 @@ const cols: { label: string; num: boolean }[] = [
 <Base title="Players" active="Players" sample={isSample}>
   <div class="players-page">
   <p class="eyebrow">Players</p>
-  <h1>{rows.length} available</h1>
+  <h2>{rows.length} available</h2>
   <p class="muted intro">
     The model's predicted points{gw !== null && <> for gameweek {gw}</>}, and for the next {data.horizon} gameweeks, with a
     floor-to-ceiling range. Ceiling % is the chance of a 10-point haul, from a separate model, not worked out from the range.
@@ -121,7 +121,7 @@ const cols: { label: string; num: boolean }[] = [
 
 <style is:global>
   /* Global on purpose: scoped styles stamp an attribute on every cell, which adds up over several hundred rows. */
-  .players-page h1 { font: 900 clamp(30px, 5vw, 40px)/1 var(--display); text-transform: uppercase; }
+  .players-page h2 { font: 900 clamp(30px, 5vw, 40px)/1 var(--display); text-transform: uppercase; }
   .players-page .intro { margin: 8px 0 18px; max-width: 68ch; }
   .players-page .controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; margin-bottom: 14px; }
   .players-page .controls[hidden] { display: none; }

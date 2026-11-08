@@ -508,11 +508,11 @@ revert anything already submitted to FPL.
 
 ## Web site
 
-The Streamlit dashboard is being replaced tab by tab with a static site in `web/` (Astro), hosted
-free on Cloudflare Pages, with the pages showing your squad behind Cloudflare Access. Step 1 is **This Week**: the tactics board
-(tap a magnet for the player's card; "After the talk" slides the XI into the recommended
-lineup), the hairdryer, the transfer plan for both horizons, and the range of outcomes. The
-other tabs link to the Streamlit app until they move over.
+A static site in `web/` (Astro), hosted free on Cloudflare Pages, replaces the Streamlit dashboard.
+Players, Fixtures, Optimal Squad and Model Lab are public. This Week and Season show your own
+squad, so they sit behind Cloudflare Access. Optimal Squad is solved ahead of time for every budget
+and horizon during the data refresh. Model Lab shows a fixed run from `scripts/build_model_lab.py`
+and its file, `web/src/data/model-lab.json`, is committed; re-run the script to update it.
 
 How it works:
 
@@ -555,8 +555,7 @@ data, export it first: `python -m src.web_data.export --out web/src/data/this-we
    `ALLOWED_EMAILS` = your email (an optional second lock; comma-separate several).
 4. **Let GitHub deploy.** Create an API token (My Profile -> API Tokens -> Custom token, with
    *Account - Cloudflare Pages - Edit*). Add repo secrets `CLOUDFLARE_API_TOKEN` and
-   `CLOUDFLARE_ACCOUNT_ID` (the account ID is on the Workers & Pages overview). Optional repo
-   variable `STREAMLIT_URL` makes the other tabs link to the Streamlit app.
+   `CLOUDFLARE_ACCOUNT_ID` (the account ID is on the Workers & Pages overview).
 5. **Deploy.** Actions -> *Deploy the web site* -> Run workflow. Then, in a private window:
    `https://fergies.briankileo.com/` should open with no login;
    `https://fergies.briankileo.com/this-week/` should show Cloudflare's sign-in, a code by email,

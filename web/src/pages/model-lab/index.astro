@@ -11,14 +11,14 @@ const fmt = (n: number) => n.toLocaleString("en-GB");
 const maxImp = (m: "random_forest" | "xgboost") => Math.max(...data.importances[m].map((i) => i.importance), 1e-9);
 ---
 <Base title="Model Lab" active="Model Lab" sample={isSample}>
-  <h1 class="disp">Model Lab</h1>
+  <h2 class="disp">Model Lab</h2>
   <p class="lede muted">
-    What happens to the predictions when we take a group of inputs away? These are results from one fixed run on
-    {ran}, not a live tool. Nothing here retrains when you open the page.
+    What happens to the predictions when we take a group of inputs away? These are results from one fixed run on {ran},
+    not a live tool. Nothing here retrains when you open the page.
   </p>
 
   <section class="card how" aria-labelledby="how">
-    <h2 id="how">How to read this</h2>
+    <h3 id="how">How to read this</h3>
     <ul>
       <li>Models learn from {trained} ({fmt(data.n_train)} player-gameweeks) and are scored on the held-out season, {data.test_season} ({fmt(data.n_test)} player-gameweeks). They never see that season in training.</li>
       <li>{data.sample_frac !== null
@@ -31,7 +31,7 @@ const maxImp = (m: "random_forest" | "xgboost") => Math.max(...data.importances[
   </section>
 
   <section aria-labelledby="ref">
-    <h2 id="ref">All inputs</h2>
+    <h3 id="ref">All inputs</h3>
     <p class="muted sub">The reference run. Every experiment below is compared with these rows.</p>
     <div class="scroll card" tabindex="0" role="region" aria-label="All-inputs results, scrolls sideways on small screens">
       <table>
@@ -65,14 +65,14 @@ const maxImp = (m: "random_forest" | "xgboost") => Math.max(...data.importances[
   </section>
 
   <section aria-labelledby="drop">
-    <h2 id="drop">Take a group away</h2>
+    <h3 id="drop">Take a group away</h3>
     <p class="muted sub">
       Each row retrains the model without one group of inputs. Change is the difference in R&sup2; from the all-inputs run;
       p is the paired bootstrap test of that difference.
     </p>
     {FITTED.map((m) => (
       <div class="block">
-        <h3>{MODEL_LABEL[m]} <span class="muted base">all inputs: R&sup2; {num(data.reference[m].r2)}</span></h3>
+        <h4>{MODEL_LABEL[m]} <span class="muted base">all inputs: R&sup2; {num(data.reference[m].r2)}</span></h4>
         <div class="scroll card" tabindex="0" role="region" aria-label={`${MODEL_LABEL[m]} without each group, scrolls sideways on small screens`}>
           <table>
             <caption class="sr-only">{MODEL_LABEL[m]} with each input group removed</caption>
@@ -108,12 +108,12 @@ const maxImp = (m: "random_forest" | "xgboost") => Math.max(...data.importances[
   </section>
 
   <section aria-labelledby="imp">
-    <h2 id="imp">What the models lean on</h2>
+    <h3 id="imp">What the models lean on</h3>
     <p class="muted sub">Top inputs by importance in the all-inputs run. Importance shows what a model uses, not what causes points.</p>
     <div class="imps">
       {(["random_forest", "xgboost"] as const).map((m) => (
         <div class="card imp">
-          <h3>{MODEL_LABEL[m]}</h3>
+          <h4>{MODEL_LABEL[m]}</h4>
           <ol>
             {data.importances[m].map((i) => (
               <li>
@@ -138,11 +138,12 @@ const maxImp = (m: "random_forest" | "xgboost") => Math.max(...data.importances[
 </Base>
 
 <style>
-  h1 { font-size: clamp(34px, 6vw, 52px); font-weight: 900; }
-  h3 { font-size: 22px; font-weight: 800; margin-bottom: 8px; }
+  h2 { font-size: clamp(34px, 6vw, 52px); font-weight: 900; }
+  h4 { font-size: 22px; font-weight: 800; margin-bottom: 8px; }
   .lede { max-width: 62ch; margin: 8px 0 22px; }
   .how { padding: 18px 20px; margin-bottom: 8px; }
-  .how h2 { font-size: 24px; margin-bottom: 10px; }
+  h3 { font-size: clamp(22px, 3vw, 28px); font-weight: 900; }
+  .how h3 { font-size: 24px; margin-bottom: 10px; }
   .how ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 80ch; }
   section { margin-top: clamp(28px, 5vw, 48px); }
   .sub { margin: 6px 0 14px; max-width: 70ch; }

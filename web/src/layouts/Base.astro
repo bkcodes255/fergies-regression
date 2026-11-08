@@ -32,7 +32,7 @@ const { title, active, gated = false, sample = false } = Astro.props;
           {NAV.map((n) => (
             <li>
               <a href={n.href} aria-current={n.label === active ? "page" : undefined}>
-                {n.label}{n.gated && <span class="sr-only"> (sign-in required)</span>}
+                {n.label}{n.gated && <span class="gate" aria-hidden="true">Login</span><span class="sr-only"> (sign-in required)</span>}
               </a>
             </li>
           ))}
@@ -69,6 +69,7 @@ const { title, active, gated = false, sample = false } = Astro.props;
     letter-spacing: .04em; color: var(--muted); text-decoration: none; border-bottom: 3px solid transparent; margin-bottom: -1px; }
   nav a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--marker); }
   nav a:hover { color: var(--ink); }
+  .gate { margin-left: 5px; font: 700 10px/1 var(--text); letter-spacing: .06em; color: var(--marker); vertical-align: super; }
   .sample { margin-top: 12px; padding: 10px 14px; border-radius: 10px; background: #3a3413; color: var(--marker); font-weight: 600; font-size: 14px; }
   main { padding-top: clamp(16px, 2.5vw, 24px); }
   .foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding-top: 28px; padding-bottom: 40px;

@@ -8,7 +8,7 @@ const worst = data.teams[data.teams.length - 1];
 ---
 <Base title="Fixtures" active="Fixtures" sample={isSample}>
   <p class="eyebrow">Fixtures</p>
-  <h1>Next {data.horizon} gameweeks</h1>
+  <h2>Next {data.horizon} gameweeks</h2>
   <p class="muted intro">
     This project's own fixture-difficulty score, from each team's rolling attack and defence form. It is not FPL's published
     ratings, and the two often disagree. Each fixture shows its grade from 1 (easiest) to 5 (hardest). A double gameweek shows
@@ -61,7 +61,7 @@ const worst = data.teams[data.teams.length - 1];
 </Base>
 
 <style>
-  h1 { font: 900 clamp(30px, 5vw, 40px)/1 var(--display); text-transform: uppercase; }
+  h2 { font: 900 clamp(30px, 5vw, 40px)/1 var(--display); text-transform: uppercase; }
   .intro { margin: 8px 0 18px; max-width: 68ch; }
   .key { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 13px; margin-bottom: 12px; }
   .chip { display: inline-flex; gap: 6px; align-items: center; }

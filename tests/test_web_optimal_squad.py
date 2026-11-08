@@ -81,22 +81,24 @@ class OptimalSquadExport(unittest.TestCase):
             self.assertIsNone(sol["by_budget"][0])
             self.assertIsNotNone(sol["by_budget"][1])
 
-    def test_a_solver_error_is_contained_to_that_option(self):
+    def test_a_solver_error_below_the_top_budget_is_contained(self):
         real = page.build_optimal_squad
-        calls = {"n": 0}
 
-        def flaky(*a, **k):
-            calls["n"] += 1
-            if calls["n"] == 1:
+        def flaky(rankings, budget, **k):
+            if budget == 20.0:
                 raise RuntimeError("boom")
-            return real(*a, **k)
+            return real(rankings, budget, **k)
 
         with mock.patch.object(page, "build_optimal_squad", flaky):
-            data = page.build(self.rankings, "2026-27", [90.0, 100.0])
-        # budgets are solved highest first, so the first call was 100.0
-        self.assertIsNone(data["solutions"]["next"]["by_budget"][1])
-        self.assertIsNotNone(data["solutions"]["next"]["by_budget"][0])
-        self.assertIsNotNone(data["solutions"]["window"]["by_budget"][1])
+            data = page.build(self.rankings, "2026-27", [20.0, 100.0])
+        for sol in data["solutions"].values():
+            self.assertIsNone(sol["by_budget"][0])
+            self.assertIsNotNone(sol["by_budget"][1])
+
+    def test_a_broken_solver_fails_the_export(self):
+        with mock.patch.object(page, "build_optimal_squad", side_effect=RuntimeError("no solver")):
+            with self.assertRaises(RuntimeError):
+                page.build(self.rankings, "2026-27", [90.0, 100.0])
 
     def test_payload_json_serialisable_and_has_no_entry_data(self):
         text = json.dumps(self.data, allow_nan=False)
