@@ -1,6 +1,153 @@
 ---
 import Base from "../../layouts/Base.astro";
+import { load } from "../../lib/data";
+import { signed } from "../../lib/format";
+import { buildChart, dash, W, H, type Season } from "../../lib/pages/season";
+const { data, isSample } = load<Season>("season");
+const s = data.summary;
+const a = data.accuracy;
+const rows = data.gameweeks;
+const chart = buildChart(rows);
 ---
-<Base title="Season" active="Season" gated>
-  <p class="muted">Not built yet.</p>
+<Base title="Season" active="Season" gated sample={isSample}>
+  {s ? (
+    <>
+      <div class="tiles">
+        <div class="card stat"><p class="lbl">Total points</p><p class="val">{s.total_points ?? "—"}</p><p class="muted sub">Average {s.average_points.toFixed(1)} a week</p></div>
+        <div class="card stat"><p class="lbl">Overall rank</p><p class="val">{s.overall_rank === null ? "—" : s.overall_rank.toLocaleString("en-GB")}</p></div>
+        <div class="card stat good"><p class="lbl">Best gameweek</p><p class="val">{s.best_gw.points}</p><p class="muted sub">GW{s.best_gw.gw}</p></div>
+        <div class="card stat warn"><p class="lbl">Points left on bench</p><p class="val">{s.bench_points}</p><p class="muted sub">Across {s.gameweeks_played} gameweek{s.gameweeks_played === 1 ? "" : "s"}</p></div>
+      </div>
+
+      <h2>Model accuracy: predicted against what happened</h2>
+      <p class="muted note">
+        The prediction lines only appear once a prediction existed before that gameweek's deadline, so GW1 never has one.
+        A gap means unavailable, not zero. Both are for the starting XI you actually fielded.
+      </p>
+      {rows.length === 0 ? (
+        <div class="card empty"><p class="muted">No gameweek history ingested yet.</p></div>
+      ) : (
+        <>
+          <figure class="card chart">
+            <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-labelledby="chart-t chart-d">
+              <title id="chart-t">Points by gameweek: actual, this model and FPL's own projection</title>
+              <desc id="chart-d">The same numbers are in the table below the chart.</desc>
+              {chart.yTicks.map((t) => (
+                <>
+                  <line x1="38" x2={W - 12} y1={t.y} y2={t.y} class="grid" />
+                  <text x="32" y={t.y + 4} class="tick" text-anchor="end">{t.label}</text>
+                </>
+              ))}
+              {chart.xTicks.map((t) => <text x={t.x} y={H - 8} class="tick" text-anchor="middle">{t.label}</text>)}
+              <path d={chart.paths.fpl} class="line fpl" />
+              <path d={chart.paths.model} class="line model" />
+              <path d={chart.paths.actual} class="line actual" />
+              {chart.dots.fpl.map((d) => <circle cx={d.x} cy={d.y} r="2.5" class="dot fpl"><title>GW{d.gw} FPL's own: {d.v.toFixed(1)}</title></circle>)}
+              {chart.dots.model.map((d) => <circle cx={d.x} cy={d.y} r="3" class="dot model"><title>GW{d.gw} this model: {d.v.toFixed(1)}</title></circle>)}
+              {chart.dots.actual.map((d) => <circle cx={d.x} cy={d.y} r="4" class="dot actual"><title>GW{d.gw} actual: {d.v}</title></circle>)}
+            </svg>
+            <figcaption class="legend">
+              <span><i class="sw actual"></i>Actual</span>
+              <span><i class="sw model"></i>This model</span>
+              <span><i class="sw fpl"></i>FPL's own</span>
+            </figcaption>
+          </figure>
+
+          <div class="insights">
+            {a ? (
+              <>
+                <div class={`card insight ${a.model_error < a.fpl_error ? "good" : "warn"}`}>
+                  <h3>Beating FPL's own projection {a.beats} of {a.weeks} weeks</h3>
+                  <p class="muted">Mean error {a.model_error.toFixed(1)} points a gameweek against their {a.fpl_error.toFixed(1)}.</p>
+                </div>
+                <div class="card insight warn">
+                  <h3>GW{a.biggest_miss.gw}: biggest miss this season</h3>
+                  <p class="muted">Predicted {a.biggest_miss.predicted}, actual {a.biggest_miss.actual} ({signed(a.biggest_miss.gap, 0)}). The model hedges toward the average by design.</p>
+                </div>
+              </>
+            ) : (
+              <div class="card insight good">
+                <h3>Not enough gameweeks yet</h3>
+                <p class="muted">The comparison needs at least one gameweek with a prediction made before the deadline.</p>
+              </div>
+            )}
+          </div>
+
+          <details class="card tbl">
+            <summary>Full gameweek table</summary>
+            <div class="scroll" tabindex="0" role="region" aria-label="Full gameweek table">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Gameweek</th><th scope="col">Model</th><th scope="col">FPL</th><th scope="col">Scored</th>
+                    <th scope="col">Vs model</th><th scope="col">Average</th><th scope="col">Highest</th><th scope="col">Overall</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr>
+                      <th scope="row">GW{r.gw}</th>
+                      <td>{dash(r.model)}</td><td>{dash(r.fpl)}</td><td>{dash(r.actual, 0)}</td>
+                      <td>{r.delta === null ? "—" : signed(r.delta)}</td>
+                      <td>{dash(r.average, 0)}</td><td>{dash(r.highest, 0)}</td>
+                      <td>{r.percentile === null ? "—" : `Top ${r.percentile.toFixed(0)}%`}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </>
+      )}
+    </>
+  ) : (
+    <div class="card empty">
+      <h2>No season yet</h2>
+      <p class="muted">There's no squad history in the database to show. Once the data refresh has loaded your team, your season appears here.</p>
+    </div>
+  )}
 </Base>
+
+<style>
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 760px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .stat { padding: 12px 16px; }
+  .lbl { font-size: 13px; color: var(--muted); }
+  .val { font: 800 34px/1.05 var(--display); }
+  .sub { font-size: 13px; }
+  .stat.good .val { color: var(--good); }
+  .stat.warn .val { color: var(--marker); }
+  h2 { font: 800 24px/1.1 var(--display); margin: clamp(28px, 4vw, 44px) 0 8px; }
+  .note { max-width: 70ch; margin-bottom: 14px; }
+  .chart { padding: 14px; margin: 0; }
+  svg { display: block; width: 100%; height: auto; }
+  .grid { stroke: var(--line); stroke-width: 1; }
+  .tick { fill: var(--muted); font: 11px var(--text); }
+  .line { fill: none; stroke-linejoin: round; stroke-linecap: round; }
+  .line.actual { stroke: var(--disc); stroke-width: 2.5; }
+  .line.model { stroke: var(--marker); stroke-width: 2; }
+  .line.fpl { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 5 4; }
+  .dot.actual { fill: var(--disc); }
+  .dot.model { fill: var(--marker); }
+  .dot.fpl { fill: var(--muted); }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .sw { display: inline-block; width: 18px; height: 3px; margin-right: 6px; vertical-align: middle; }
+  .sw.actual { background: var(--disc); }
+  .sw.model { background: var(--marker); }
+  .sw.fpl { background: repeating-linear-gradient(90deg, var(--muted) 0 5px, transparent 5px 9px); }
+  .insights { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 14px; }
+  .insight { padding: 14px 16px; border-left: 4px solid var(--muted); }
+  .insight.good { border-left-color: var(--good); }
+  .insight.warn { border-left-color: var(--marker); }
+  .insight h3 { font: 700 17px/1.2 var(--text); margin-bottom: 4px; }
+  .tbl { margin-top: 14px; padding: 12px 16px; }
+  summary { cursor: pointer; font-weight: 600; }
+  summary:focus-visible, .scroll:focus-visible { outline: 2px solid var(--marker); outline-offset: 2px; }
+  .scroll { overflow-x: auto; margin-top: 10px; }
+  table { border-collapse: collapse; width: 100%; min-width: 520px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th[scope="col"]:first-child, th[scope="row"] { text-align: left; }
+  thead th { color: var(--muted); font-size: 13px; font-weight: 600; }
+  tbody th { font-weight: 600; }
+  .empty { padding: 28px; display: grid; gap: 8px; margin-top: 18px; }
+</style>
