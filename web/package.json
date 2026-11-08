@@ -6,7 +6,8 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "wrangler pages dev dist",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "check:leaks": "node scripts/check-leaks.mjs"
   },
   "dependencies": {
     "@fontsource/anton": "5.3.0",

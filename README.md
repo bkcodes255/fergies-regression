@@ -506,10 +506,10 @@ Disabling this workflow only stops new reminders/approvals/auto-submits from fir
 not touch `ingest_and_predict.yml` (data/prediction refresh keeps running), and it doesn't
 revert anything already submitted to FPL.
 
-## Web site (This Week, behind a login)
+## Web site
 
 The Streamlit dashboard is being replaced tab by tab with a static site in `web/` (Astro), hosted
-free on Cloudflare Pages behind Cloudflare Access. Step 1 is **This Week**: the tactics board
+free on Cloudflare Pages, with the pages showing your squad behind Cloudflare Access. Step 1 is **This Week**: the tactics board
 (tap a magnet for the player's card; "After the talk" slides the XI into the recommended
 lineup), the hairdryer, the transfer plan for both horizons, and the range of outcomes. The
 other tabs link to the Streamlit app until they move over.
@@ -520,26 +520,35 @@ How it works:
   `python -m src.web_data.export`, which builds the page's JSON with the same functions the
   Streamlit tab uses (`src/web_data/`), then builds the site and deploys it. The browser never
   talks to the database. A deploy is skipped when the data hasn't changed.
+- **Public pages are open; your squad is not.** Players, Fixtures, Optimal Squad, Model Lab and
+  the build's `/_astro/` files need no login, and only for `GET` and `HEAD`. This list lives in
+  `web/server/routes.js` and is an allow-list: This Week, Season, unknown paths and any odd
+  spelling of a public path (encoded, re-cased, doubled slashes) need a login. A new page is
+  private until it's added there.
 - **Login is Cloudflare Access** (free for up to 50 users): a one-time PIN to an allowed email.
-  `web/functions/_middleware.js` also verifies Access's signed token on every request, so the
-  site **fails closed** - an address Access doesn't cover, or a missing setting, serves
-  nothing (`403` / `500`) instead of the squad.
+  `web/functions/_middleware.js` also verifies Access's signed token on every login-only
+  request, so those paths **fail closed** - an address Access doesn't cover, such as
+  `*.pages.dev`, or a missing setting, serves nothing (`403` / `500`) instead of the squad.
+- **The build is checked for leaks.** `npm run check:leaks` runs after the build and stops the
+  deploy if any public file holds private JSON keys or the text of your calls.
 
 Local development: `cd web && npm install && npm run dev` serves the committed sample
 (`web/src/data/sample-this-week.json`, test data - the page says so). To preview with real
 data, export it first: `python -m src.web_data.export --out web/src/data/this-week.json`
-(that file is git-ignored). `npm test` runs the login-check tests.
+(that file is git-ignored). `npm test` runs the login and route tests.
 
 ### One-time setup
 
 1. **Create the Pages project.** Cloudflare dashboard -> Workers & Pages -> Create -> Pages ->
    *Upload assets*, name it `fergies-regression` (or another name, then set the repo variable
    `CF_PAGES_PROJECT` to it). Upload any placeholder; the workflow replaces it.
-2. **Protect it with Access.** Zero Trust dashboard -> Access -> Applications -> Add an
-   application -> *Self-hosted*. Add two public hostnames: `fergies-regression.pages.dev` and
-   `*.fergies-regression.pages.dev` (the wildcard covers preview deployments), plus your custom
-   domain if you add one later. Policy: *Allow*, include *Emails* = your email. Login method:
-   *One-time PIN*. Save, then copy the application's **Application Audience (AUD) tag**, and
+2. **Protect the login-only paths with Access.** Add `fergies.briankileo.com` under the Pages
+   project's Custom domains. Then Zero Trust dashboard -> Access -> Applications -> Add an
+   application -> *Self-hosted*. Add two public hostnames, each with a path:
+   `fergies.briankileo.com` + `this-week`, and `fergies.briankileo.com` + `season`. Cover only
+   these paths, or the public pages will ask for a login too. There's no need to add
+   `*.pages.dev`: login-only paths there have no Access token, so the middleware refuses them.
+   Policy: *Allow*, include *Emails* = your email. Login method: *One-time PIN*. Save, then copy the application's **Application Audience (AUD) tag**, and
    note your **team domain** (Zero Trust -> Settings, e.g. `yourteam.cloudflareaccess.com`).
 3. **Give the site its login settings.** Pages project -> Settings -> Variables and Secrets ->
    Production: `CF_ACCESS_TEAM_DOMAIN` = the team domain, `CF_ACCESS_AUD` = the AUD tag,
@@ -548,12 +557,11 @@ data, export it first: `python -m src.web_data.export --out web/src/data/this-we
    *Account - Cloudflare Pages - Edit*). Add repo secrets `CLOUDFLARE_API_TOKEN` and
    `CLOUDFLARE_ACCOUNT_ID` (the account ID is on the Workers & Pages overview). Optional repo
    variable `STREAMLIT_URL` makes the other tabs link to the Streamlit app.
-5. **Deploy.** Actions -> *Deploy the web site* -> Run workflow. Then open
-   `https://fergies-regression.pages.dev`: you should get Cloudflare's sign-in, a code by email,
-   then the page. Opening it in a private window without signing in should never show the squad.
-
-A custom domain (about $10 a year through Cloudflare Registrar) is optional: add it under the
-Pages project's Custom domains, and add the same hostname to the Access application.
+5. **Deploy.** Actions -> *Deploy the web site* -> Run workflow. Then, in a private window:
+   `https://fergies.briankileo.com/` should open with no login;
+   `https://fergies.briankileo.com/this-week/` should show Cloudflare's sign-in, a code by email,
+   then the page; and `https://fergies-regression.pages.dev/this-week/` should be refused with a
+   `403`. None of them should ever show the squad without signing in.
 
 ## Build phases
 
