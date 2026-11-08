@@ -5,8 +5,9 @@ name: Deploy the web site
 # database here, baked into the build, and never reachable from the browser.
 #
 # Does nothing until it's set up (see "Web site" in README.md): it needs the CLOUDFLARE_API_TOKEN
-# and CLOUDFLARE_ACCOUNT_ID secrets. The login itself is Cloudflare Access, configured on
-# Cloudflare's side; the site refuses every request without it.
+# and CLOUDFLARE_ACCOUNT_ID secrets. Public pages are open to anyone. This Week, Season and any
+# other path not on the allow-list in web/server/routes.js need a Cloudflare Access login,
+# configured on Cloudflare's side; web/functions/_middleware.js refuses them without one.
 on:
   workflow_run:
     workflows: ["Ingest data and refresh predictions"]
@@ -89,7 +90,7 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - name: Install, test and build
+      - name: Install, test, build and check for leaks
         if: steps.setup.outputs.ready == 'true' && steps.seen.outputs.cache-hit != 'true'
         working-directory: web
         env:
@@ -98,6 +99,7 @@ jobs:
           npm ci
           npm test
           npm run build
+          npm run check:leaks
 
       - name: Deploy to Cloudflare Pages
         if: steps.setup.outputs.ready == 'true' && steps.seen.outputs.cache-hit != 'true'
