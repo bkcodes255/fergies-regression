@@ -8,13 +8,11 @@ import "@fontsource/permanent-marker/400";
 import "@fontsource/anton/400";
 import "../styles/global.css";
 import BroadcastBar from "../components/BroadcastBar.astro";
-import { data, isSample } from "../lib/data";
+import { site as data } from "../lib/data";
+import { NAV } from "../lib/nav";
 
-interface Props { title: string; active: string }
-const { title, active } = Astro.props;
-// The tabs not ported yet link to the Streamlit app while it's still the home for them.
-const legacy = import.meta.env.PUBLIC_STREAMLIT_URL as string | undefined;
-const tabs = ["This Week", "Players", "Fixtures", "Season", "Optimal Squad", "Model Lab"];
+interface Props { title: string; active: string; gated?: boolean; sample?: boolean }
+const { title, active, gated = false, sample = false } = Astro.props;
 ---
 <!doctype html>
 <html lang="en-GB">
@@ -31,13 +29,17 @@ const tabs = ["This Week", "Players", "Fixtures", "Season", "Optimal Squad", "Mo
       <BroadcastBar />
       <nav aria-label="Sections">
         <ul>
-          {tabs.map((t) => t === active
-            ? <li><a href="/" aria-current="page">{t}</a></li>
-            : legacy ? <li><a href={legacy} class="legacy">{t}<span aria-hidden="true"> ↗</span><span class="sr-only"> (in the Streamlit app)</span></a></li> : null)}
+          {NAV.map((n) => (
+            <li>
+              <a href={n.href} aria-current={n.label === active ? "page" : undefined}>
+                {n.label}{n.gated && <span class="sr-only"> (sign-in required)</span>}
+              </a>
+            </li>
+          ))}
         </ul>
       </nav>
-      {isSample && (
-        <p class="sample" role="note">Sample data: this build has no live export, so the squad below is the test fixture, not yours.</p>
+      {sample && (
+        <p class="sample" role="note">Sample data: this build has no live export, so these numbers are test fixtures.</p>
       )}
     </header>
     <main class="wrap"><slot /></main>
@@ -46,7 +48,7 @@ const tabs = ["This Week", "Players", "Fixtures", "Season", "Optimal Squad", "Mo
         Predictions from this project's own model, refreshed with each data update
         (<time datetime={data.generated_at} data-ago>{data.generated_at.slice(0, 16).replace("T", " ")} UTC</time>).
       </p>
-      <a href="/cdn-cgi/access/logout">Sign out</a>
+      {gated && <a href="/cdn-cgi/access/logout">Sign out</a>}
     </footer>
     <script>
       // "updated 2h ago" - relative to the reader's clock, so it stays honest between deploys.
@@ -67,7 +69,6 @@ const tabs = ["This Week", "Players", "Fixtures", "Season", "Optimal Squad", "Mo
     letter-spacing: .04em; color: var(--muted); text-decoration: none; border-bottom: 3px solid transparent; margin-bottom: -1px; }
   nav a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--marker); }
   nav a:hover { color: var(--ink); }
-  .legacy span[aria-hidden] { font-family: var(--text); font-size: 13px; }
   .sample { margin-top: 12px; padding: 10px 14px; border-radius: 10px; background: #3a3413; color: var(--marker); font-weight: 600; font-size: 14px; }
   main { padding-top: clamp(16px, 2.5vw, 24px); }
   .foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding-top: 28px; padding-bottom: 40px;

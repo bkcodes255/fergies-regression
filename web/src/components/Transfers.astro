@@ -1,6 +1,6 @@
 ---
 import type { Plan, PlanPlayer } from "../lib/data";
-import { signed } from "../lib/data";
+import { signed } from "../lib/format";
 interface Props { plans: { "1gw": Plan; "5gw": Plan }; horizon: number }
 const { plans, horizon } = Astro.props;
 const top = plans["1gw"].transfers[0];

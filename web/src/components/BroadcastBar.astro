@@ -1,5 +1,6 @@
 ---
-import { data, ukTime } from "../lib/data";
+import { site as data } from "../lib/data";
+import { ukTime } from "../lib/format";
 const gw = data.deadline ? `GW${data.deadline.event_id}` : "—";
 const meta = [data.season, data.predicted_gw && `predictions for GW${data.predicted_gw}`, data.last_gw && `data to GW${data.last_gw}`]
   .filter(Boolean).join(" · ");

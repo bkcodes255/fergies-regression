@@ -1,7 +1,10 @@
-// The page's data, baked in at build time. The deploy workflow writes src/data/this-week.json
-// from the live database (python -m src.web_data.export); without it - local development - the
-// committed sample is used, and the page says so. A deploy build sets REQUIRE_WEB_DATA=1 so a
-// failed export stops the deploy instead of shipping the sample.
+// The site's data, baked in at build time and never served from an API. The deploy workflow writes
+// src/data/<name>.json from the live database (python -m src.web_data.export); without them - local
+// development - the committed src/data/sample-<name>.json is used, and the page says so. A deploy
+// build sets REQUIRE_WEB_DATA=1 so a failed export stops the deploy instead of shipping a sample.
+//
+// Never import this file from a browser script except with `import type`: the glob below holds
+// every JSON file, the private squad included. Display helpers live in format.ts.
 
 export interface Magnet { id: number; n: string; full: string; p: number | null; cap: boolean; vice: boolean }
 export interface Board { xi: Magnet[][]; bench: Magnet[] }
@@ -38,21 +41,27 @@ export interface ThisWeek {
   };
 }
 
+/** Shown in every page's header and footer, so it holds nothing about Brian's squad. */
+export interface Site {
+  generated_at: string; season: string; last_gw: number | null; predicted_gw: number | null;
+  deadline: { event_id: number; name: string; time: string } | null;
+  horizon: number;
+}
+
 declare const process: { env: Record<string, string | undefined> }; // Node, at build time
 
-const files = import.meta.glob<ThisWeek>("../data/*.json", { eager: true, import: "default" });
-const live = files["../data/this-week.json"];
-if (!live && process.env.REQUIRE_WEB_DATA) {
-  throw new Error("REQUIRE_WEB_DATA is set but src/data/this-week.json is missing - the export step failed.");
-}
-export const isSample = !live;
-export const data: ThisWeek = live ?? files["../data/sample-this-week.json"];
+const files = import.meta.glob<unknown>("../data/*.json", { eager: true, import: "default" });
 
-/** "Sat 17 Oct, 11:00 UK time" - FPL deadlines are set in UK time, so that's the clock shown. */
-export function ukTime(iso: string): string {
-  const d = new Date(iso);
-  const part = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", ...o }).format(d);
-  return `${part({ weekday: "short" })} ${part({ day: "numeric" })} ${part({ month: "short" })}, ${part({ hour: "2-digit", minute: "2-digit", hour12: false })} UK time`;
+/** One page's data: src/data/<name>.json, else the committed sample. */
+export function load<T>(name: string): { data: T; isSample: boolean } {
+  const live = files[`../data/${name}.json`];
+  if (live !== undefined) return { data: live as T, isSample: false };
+  if (process.env.REQUIRE_WEB_DATA) {
+    throw new Error(`REQUIRE_WEB_DATA is set but src/data/${name}.json is missing - the export step failed.`);
+  }
+  const sample = files[`../data/sample-${name}.json`];
+  if (sample === undefined) throw new Error(`No src/data/${name}.json and no sample-${name}.json.`);
+  return { data: sample as T, isSample: true };
 }
 
-export const signed = (v: number, digits = 1) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(digits);
+export const site = load<Site>("site").data;

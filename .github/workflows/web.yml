@@ -55,7 +55,7 @@ jobs:
       # Just the export's import graph (src/web_data/export.py) - no model libraries.
       - name: Install Python dependencies
         if: steps.setup.outputs.ready == 'true'
-        run: pip install psycopg2-binary "psycopg[binary]>=3.1" sqlalchemy python-dotenv pandas numpy
+        run: pip install psycopg2-binary "psycopg[binary]>=3.1" sqlalchemy python-dotenv pandas numpy pulp
 
       - name: Export This Week from the database
         if: steps.setup.outputs.ready == 'true'
@@ -63,7 +63,7 @@ jobs:
           DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
           FPL_SEASON: "2026-27"
           FPL_ENTRY_ID: ${{ secrets.FPL_ENTRY_ID }}
-        run: python -m src.web_data.export --out web/src/data/this-week.json
+        run: python -m src.web_data.export --out-dir web/src/data
 
       # On matchdays the refresh runs every 15 minutes; only deploy when what the page shows has
       # actually changed (the export's timestamp aside).
@@ -71,7 +71,7 @@ jobs:
         if: steps.setup.outputs.ready == 'true'
         id: fp
         run: |
-          echo "hash=$(python -c "import json,hashlib; d=json.load(open('web/src/data/this-week.json')); d.pop('generated_at'); print(hashlib.sha256(json.dumps(d, sort_keys=True).encode()).hexdigest()[:16])")-${{ hashFiles('web/**', '!web/src/data/**') }}" >> "$GITHUB_OUTPUT"
+          echo "hash=$(python -c "import json,hashlib,pathlib; d={p.name:json.loads(p.read_text()) for p in sorted(pathlib.Path('web/src/data').glob('*.json')) if not p.name.startswith('sample-')}; [v.pop('generated_at',None) for v in d.values()]; print(hashlib.sha256(json.dumps(d,sort_keys=True).encode()).hexdigest()[:16])")-${{ hashFiles('web/**', '!web/src/data/**') }}" >> "$GITHUB_OUTPUT"
 
       - name: Skip if this exact page is already live
         if: steps.setup.outputs.ready == 'true'
@@ -94,7 +94,6 @@ jobs:
         working-directory: web
         env:
           REQUIRE_WEB_DATA: "1"
-          PUBLIC_STREAMLIT_URL: ${{ vars.STREAMLIT_URL }}
         run: |
           npm ci
           npm test
