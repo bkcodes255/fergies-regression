@@ -1,0 +1,313 @@
+{
+ "generated_at": "2026-10-11T08:31:42Z",
+ "season": "2026-27",
+ "predicted_gw": 8,
+ "horizon": 5,
+ "budgets": [
+  50.0,
+  90.0,
+  100.0
+ ],
+ "solutions": {
+  "next": {
+   "squads": [
+    {
+     "xi": [
+      248,
+      123,
+      95,
+      31,
+      7,
+      140,
+      203,
+      218,
+      26,
+      206,
+      142
+     ],
+     "bench": [
+      40,
+      6,
+      133,
+      101
+     ],
+     "cap": 26,
+     "pts": 56.7,
+     "spend": 100.0
+    },
+    {
+     "xi": [
+      210,
+      123,
+      44,
+      212,
+      95,
+      140,
+      204,
+      203,
+      26,
+      206,
+      142
+     ],
+     "bench": [
+      40,
+      133,
+      218,
+      101
+     ],
+     "cap": 26,
+     "pts": 48.2,
+     "spend": 90.0
+    }
+   ],
+   "by_budget": [
+    null,
+    1,
+    0
+   ]
+  },
+  "window": {
+   "squads": [
+    {
+     "xi": [
+      132,
+      32,
+      44,
+      123,
+      95,
+      140,
+      204,
+      218,
+      206,
+      26,
+      142
+     ],
+     "bench": [
+      40,
+      6,
+      101,
+      205
+     ],
+     "cap": 206,
+     "pts": 276.7,
+     "spend": 100.0
+    },
+    {
+     "xi": [
+      132,
+      44,
+      123,
+      212,
+      140,
+      204,
+      218,
+      203,
+      206,
+      26,
+      130
+     ],
+     "bench": [
+      40,
+      6,
+      133,
+      101
+     ],
+     "cap": 206,
+     "pts": 233.6,
+     "spend": 90.0
+    }
+   ],
+   "by_budget": [
+    null,
+    1,
+    0
+   ]
+  }
+ },
+ "players": {
+  "6": {
+   "n": "Player6",
+   "team": "T00",
+   "pos": "DEF",
+   "price": 4.0,
+   "next": 0.2,
+   "window": 0.9
+  },
+  "7": {
+   "n": "Player7",
+   "team": "T00",
+   "pos": "MID",
+   "price": 7.5,
+   "next": 2.0,
+   "window": 9.6
+  },
+  "26": {
+   "n": "Player26",
+   "team": "T01",
+   "pos": "FWD",
+   "price": 14.5,
+   "next": 13.0,
+   "window": 53.7
+  },
+  "31": {
+   "n": "Player31",
+   "team": "T02",
+   "pos": "DEF",
+   "price": 4.5,
+   "next": 0.6,
+   "window": 2.1
+  },
+  "32": {
+   "n": "Player32",
+   "team": "T02",
+   "pos": "DEF",
+   "price": 14.5,
+   "next": 8.8,
+   "window": 45.7
+  },
+  "40": {
+   "n": "Player40",
+   "team": "T03",
+   "pos": "GKP",
+   "price": 4.0,
+   "next": 0.0,
+   "window": 0.1
+  },
+  "44": {
+   "n": "Player44",
+   "team": "T03",
+   "pos": "DEF",
+   "price": 5.5,
+   "next": 1.2,
+   "window": 6.3
+  },
+  "95": {
+   "n": "Player95",
+   "team": "T07",
+   "pos": "DEF",
+   "price": 4.5,
+   "next": 0.8,
+   "window": 3.5
+  },
+  "101": {
+   "n": "Player101",
+   "team": "T07",
+   "pos": "MID",
+   "price": 4.0,
+   "next": 0.5,
+   "window": 2.0
+  },
+  "123": {
+   "n": "Player123",
+   "team": "T09",
+   "pos": "DEF",
+   "price": 5.5,
+   "next": 1.2,
+   "window": 4.8
+  },
+  "130": {
+   "n": "Player130",
+   "team": "T09",
+   "pos": "FWD",
+   "price": 5.0,
+   "next": 1.2,
+   "window": 5.7
+  },
+  "132": {
+   "n": "Player132",
+   "team": "T10",
+   "pos": "GKP",
+   "price": 5.5,
+   "next": 1.3,
+   "window": 7.0
+  },
+  "133": {
+   "n": "Player133",
+   "team": "T10",
+   "pos": "DEF",
+   "price": 4.0,
+   "next": 0.1,
+   "window": 0.4
+  },
+  "140": {
+   "n": "Player140",
+   "team": "T10",
+   "pos": "MID",
+   "price": 5.0,
+   "next": 1.1,
+   "window": 5.6
+  },
+  "142": {
+   "n": "Player142",
+   "team": "T10",
+   "pos": "FWD",
+   "price": 5.0,
+   "next": 1.4,
+   "window": 6.0
+  },
+  "203": {
+   "n": "Player203",
+   "team": "T15",
+   "pos": "MID",
+   "price": 4.5,
+   "next": 0.7,
+   "window": 2.5
+  },
+  "204": {
+   "n": "Player204",
+   "team": "T15",
+   "pos": "MID",
+   "price": 5.0,
+   "next": 0.9,
+   "window": 4.0
+  },
+  "205": {
+   "n": "Player205",
+   "team": "T15",
+   "pos": "MID",
+   "price": 4.5,
+   "next": 0.3,
+   "window": 1.2
+  },
+  "206": {
+   "n": "Player206",
+   "team": "T15",
+   "pos": "FWD",
+   "price": 14.5,
+   "next": 12.9,
+   "window": 68.7
+  },
+  "210": {
+   "n": "Player210",
+   "team": "T16",
+   "pos": "GKP",
+   "price": 5.0,
+   "next": 1.2,
+   "window": 4.7
+  },
+  "212": {
+   "n": "Player212",
+   "team": "T16",
+   "pos": "DEF",
+   "price": 5.0,
+   "next": 0.8,
+   "window": 4.0
+  },
+  "218": {
+   "n": "Player218",
+   "team": "T16",
+   "pos": "MID",
+   "price": 4.0,
+   "next": 0.5,
+   "window": 2.6
+  },
+  "248": {
+   "n": "Player248",
+   "team": "T19",
+   "pos": "GKP",
+   "price": 14.5,
+   "next": 9.5,
+   "window": 42.2
+  }
+ }
+}

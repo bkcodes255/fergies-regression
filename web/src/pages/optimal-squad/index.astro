@@ -1,6 +1,182 @@
 ---
 import Base from "../../layouts/Base.astro";
+import { load } from "../../lib/data";
+import { defaultIndex, view, type OptimalSquad } from "../../lib/pages/optimal-squad";
+const { data, isSample } = load<OptimalSquad>("optimal-squad");
+const start = defaultIndex(data.budgets);
+const v = view(data, "next", start);
+const payload = JSON.stringify(data).replace(/</g, "\\u003c");
+const last = data.budgets.length - 1;
+const POS = { GKP: "Goalkeeper", DEF: "Defender", MID: "Midfielder", FWD: "Forward" } as Record<string, string>;
+const gbp = (n: number) => `£${n.toFixed(1)}m`;
 ---
-<Base title="Optimal Squad" active="Optimal Squad">
-  <p class="muted">Not built yet.</p>
+<Base title="Optimal Squad" active="Optimal Squad" sample={isSample}>
+  <section class="os" data-os aria-labelledby="os-h">
+    <p class="eyebrow">Optimal squad from scratch</p>
+    <h2 id="os-h">The best 15 you could pick</h2>
+    <p class="muted intro">
+      Picked by an integer program, not a rule of thumb: 2 goalkeepers, 5 defenders, 5 midfielders and 3 forwards, no more than
+      3 from one club. It chooses the squad and the starting XI together and counts the captain's double points. The budget is
+      a ceiling, not a target: bench players score nothing in the sum, so it only spends on the bench if that helps a starter.
+    </p>
+
+    <div class="controls" data-controls hidden>
+      <div class="ctl">
+        <label for="os-budget">Budget: <output data-budget-out for="os-budget">{gbp(v.budget)}</output></label>
+        <input id="os-budget" type="range" min="0" max={last} step="1" value={start} data-budget />
+      </div>
+      <fieldset class="seg">
+        <legend class="sr-only">Optimise for</legend>
+        <label><input type="radio" name="os-horizon" value="next" checked />Next GW</label>
+        <label><input type="radio" name="os-horizon" value="window" />Next {data.horizon} GWs</label>
+      </fieldset>
+    </div>
+
+    <div data-result aria-live="polite">
+      {v.found ? (
+        <>
+          <div class="tiles">
+            <div class="card stat"><p class="lbl">Projected XI points</p><p class="val" data-pts>{v.pts.toFixed(1)}</p><p class="muted sub">Captain doubled</p></div>
+            <div class="card stat"><p class="lbl">Spend</p><p class="val" data-spend>{gbp(v.spend)}</p><p class="muted sub" data-unspent>{gbp(v.unspent)} unspent</p></div>
+          </div>
+          <div class="tables">
+            <div class="scroll">
+              <table>
+                <caption>Starting XI</caption>
+                <thead><tr><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Pos</th><th scope="col" class="n">Price</th><th scope="col" class="n" data-ptshead>Pts, {v.basis}</th></tr></thead>
+                <tbody data-xi>
+                  {v.xi.map((r) => (
+                    <tr><th scope="row">{r.name}{r.cap && <span class="cap" title="Captain"> (C)<span class="sr-only"> captain</span></span>}</th>
+                      <td>{r.team}</td><td><abbr title={POS[r.pos]}>{r.pos}</abbr></td><td class="n">{gbp(r.price)}</td><td class="n">{r.pts === null ? "–" : r.pts.toFixed(1)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div class="scroll">
+              <table>
+                <caption>Bench</caption>
+                <thead><tr><th scope="col">Player</th><th scope="col">Club</th><th scope="col">Pos</th><th scope="col" class="n">Price</th><th scope="col" class="n">Pts</th></tr></thead>
+                <tbody data-bench>
+                  {v.bench.map((r) => (
+                    <tr><th scope="row">{r.name}</th>
+                      <td>{r.team}</td><td><abbr title={POS[r.pos]}>{r.pos}</abbr></td><td class="n">{gbp(r.price)}</td><td class="n">{r.pts === null ? "–" : r.pts.toFixed(1)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <p class="muted cap-note" data-note>
+            Points are the model's prediction for the {v.basis}. Spend £{v.spend.toFixed(1)}m of a £{v.budget.toFixed(1)}m budget.
+          </p>
+        </>
+      ) : (
+        <p class="card empty">No squad fits a budget of {gbp(v.budget)}. Try a higher one.</p>
+      )}
+    </div>
+    <script type="application/json" data-os-json set:html={payload} />
+  </section>
 </Base>
+
+<script>
+  import { view, basisLabel, type OptimalSquad, type HorizonKey, type Row } from "../../lib/pages/optimal-squad";
+
+  const root = document.querySelector<HTMLElement>("[data-os]");
+  if (root) {
+    const data: OptimalSquad = JSON.parse(root.querySelector("[data-os-json]")!.textContent!);
+    const controls = root.querySelector<HTMLElement>("[data-controls]")!;
+    const slider = root.querySelector<HTMLInputElement>("[data-budget]")!;
+    const out = root.querySelector<HTMLOutputElement>("[data-budget-out]")!;
+    const result = root.querySelector<HTMLElement>("[data-result]")!;
+    const POS: Record<string, string> = { GKP: "Goalkeeper", DEF: "Defender", MID: "Midfielder", FWD: "Forward" };
+    const gbp = (n: number) => `£${n.toFixed(1)}m`;
+
+    const h = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, cls?: string) => {
+      const e = document.createElement(tag);
+      if (text !== undefined) e.textContent = text;
+      if (cls) e.className = cls;
+      return e;
+    };
+    const rowEl = (r: Row, withCap: boolean) => {
+      const tr = h("tr");
+      const th = h("th", r.name); th.scope = "row";
+      if (withCap && r.cap) {
+        const c = h("span", " (C)", "cap"); c.title = "Captain";
+        c.append(h("span", " captain", "sr-only"));
+        th.append(c);
+      }
+      const abbr = h("abbr", r.pos); abbr.title = POS[r.pos] ?? r.pos;
+      const pos = h("td"); pos.append(abbr);
+      tr.append(th, h("td", r.team), pos, h("td", gbp(r.price), "n"), h("td", r.pts === null ? "–" : r.pts.toFixed(1), "n"));
+      return tr;
+    };
+    const table = (caption: string, head: string, rows: Row[], withCap: boolean) => {
+      const wrap = h("div", undefined, "scroll");
+      const t = h("table");
+      t.append(h("caption", caption));
+      const tr = h("tr");
+      for (const [label, num] of [["Player", 0], ["Club", 0], ["Pos", 0], ["Price", 1], [head, 1]] as const) {
+        const th = h("th", label, num ? "n" : undefined); th.scope = "col"; tr.append(th);
+      }
+      const thead = h("thead"); thead.append(tr);
+      const tb = h("tbody"); tb.append(...rows.map((r) => rowEl(r, withCap)));
+      t.append(thead, tb);
+      wrap.append(t);
+      return wrap;
+    };
+    const tile = (label: string, value: string, sub: string) => {
+      const c = h("div", undefined, "card stat");
+      c.append(h("p", label, "lbl"), h("p", value, "val"), h("p", sub, "muted sub"));
+      return c;
+    };
+
+    const draw = () => {
+      const key = (root.querySelector<HTMLInputElement>("input[name=os-horizon]:checked")?.value ?? "next") as HorizonKey;
+      const i = Number(slider.value);
+      const v = view(data, key, i);
+      out.textContent = gbp(v.budget);
+      slider.setAttribute("aria-valuetext", gbp(v.budget));
+      result.replaceChildren();
+      if (!v.found) {
+        result.append(h("p", `No squad fits a budget of ${gbp(v.budget)}. Try a higher one.`, "card empty"));
+        return;
+      }
+      const tiles = h("div", undefined, "tiles");
+      tiles.append(tile("Projected XI points", v.pts.toFixed(1), "Captain doubled"), tile("Spend", gbp(v.spend), `${gbp(v.unspent)} unspent`));
+      const tables = h("div", undefined, "tables");
+      tables.append(table("Starting XI", `Pts, ${v.basis}`, v.xi, true), table("Bench", "Pts", v.bench, false));
+      result.append(tiles, tables, h("p",
+        `Points are the model's prediction for the ${basisLabel(key, data.horizon)}. Spend £${v.spend.toFixed(1)}m of a £${v.budget.toFixed(1)}m budget.`,
+        "muted cap-note"));
+    };
+
+    controls.hidden = false;
+    controls.addEventListener("input", draw);
+    controls.addEventListener("change", draw);
+  }
+</script>
+
+<style>
+  .os :global(.intro) { max-width: 70ch; margin: 10px 0 18px; }
+  .os :global(.controls) { display: flex; flex-wrap: wrap; align-items: end; gap: 14px 28px; margin-bottom: 18px; }
+  .os :global(.controls[hidden]) { display: none; }
+  .os :global(.ctl) { display: grid; gap: 6px; min-width: min(100%, 280px); font-weight: 600; }
+  .os :global(.ctl input) { width: 100%; accent-color: var(--marker); }
+  .os :global(fieldset) { margin: 0; border: 0; padding: 0; }
+  .os :global(.tiles) { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 18px; max-width: 520px; }
+  .os :global(.stat) { padding: 12px 16px; }
+  .os :global(.lbl) { font-size: 13px; color: var(--muted); margin: 0; }
+  .os :global(.val) { font: 800 34px/1.05 var(--display); margin: 0; }
+  .os :global(.sub) { font-size: 13px; margin: 0; }
+  .os :global(.tables) { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+  @media (max-width: 860px) { .os :global(.tables) { grid-template-columns: minmax(0, 1fr); } }
+  .os :global(.scroll) { overflow-x: auto; }
+  .os :global(table) { width: 100%; border-collapse: collapse; font-size: 15px; }
+  .os :global(caption) { text-align: left; font: 800 20px/1.2 var(--display); text-transform: uppercase; letter-spacing: .02em; padding-bottom: 8px; }
+  .os :global(th), .os :global(td) { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+  .os :global(thead th) { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .os :global(tbody th) { font-weight: 700; }
+  .os :global(.n) { text-align: right; padding-right: 0; padding-left: 10px; }
+  .os :global(.cap) { color: var(--marker); font-weight: 800; }
+  .os :global(.cap-note) { margin-top: 14px; font-size: 14px; }
+  .os :global(.empty) { padding: 22px; }
+</style>

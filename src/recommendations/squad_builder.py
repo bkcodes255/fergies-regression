@@ -80,9 +80,9 @@ def build_optimal_squad(rankings: pd.DataFrame, budget: float, solver_time_limit
     if not usable:
         return None, None, None, None
 
-    squad_idx = [i for i in idx if squad[i].value() == 1]
-    starting_idx = [i for i in idx if start[i].value() == 1]
-    captain_idx = [i for i in idx if captain[i].value() == 1]
+    squad_idx = [i for i in idx if (squad[i].value() or 0) > 0.5]
+    starting_idx = [i for i in idx if (start[i].value() or 0) > 0.5]
+    captain_idx = [i for i in idx if (captain[i].value() or 0) > 0.5]
 
     squad_df = pool.loc[squad_idx].copy()
     squad_df["starting"] = squad_df.index.isin(starting_idx)
