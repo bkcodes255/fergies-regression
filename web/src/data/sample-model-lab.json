@@ -1,0 +1,839 @@
+{
+ "generated_at": "2026-11-01T09:00:00Z",
+ "test_season": "2025-26",
+ "train_seasons": [
+  "2020-21",
+  "2021-22",
+  "2022-23",
+  "2023-24",
+  "2024-25"
+ ],
+ "n_train": 112000,
+ "n_test": 21000,
+ "sample_frac": null,
+ "n_features": 53,
+ "bootstrap_draws": 1000,
+ "overfit_gap_threshold": 0.15,
+ "groups": [
+  {
+   "name": "Price & data flags",
+   "features": [
+    "price",
+    "dc_data_available",
+    "xg_data_available"
+   ]
+  },
+  {
+   "name": "Season-to-date",
+   "features": [
+    "season_points_per90_avg",
+    "season_minutes_avg"
+   ]
+  },
+  {
+   "name": "Prior season",
+   "features": [
+    "had_prior_season",
+    "prev_season_points_per90",
+    "prev_season_minutes_avg",
+    "prev_season_total_points"
+   ]
+  },
+  {
+   "name": "Fixture & opponent strength",
+   "features": [
+    "was_home",
+    "own_attack_form",
+    "own_defense_form",
+    "opp_attack_form",
+    "opp_defense_form"
+   ]
+  },
+  {
+   "name": "Rolling form (3 GW)",
+   "features": [
+    "points_per90_roll3",
+    "goals_per90_roll3",
+    "assists_per90_roll3",
+    "xg_per90_roll3",
+    "xa_per90_roll3",
+    "xgc_per90_roll3",
+    "minutes_roll3",
+    "bps_roll3",
+    "ict_index_roll3",
+    "dc_roll3",
+    "starts_rate_roll3",
+    "threat_roll3",
+    "creativity_roll3"
+   ]
+  },
+  {
+   "name": "Rolling form (5 GW)",
+   "features": [
+    "points_per90_roll5",
+    "goals_per90_roll5",
+    "assists_per90_roll5",
+    "xg_per90_roll5",
+    "xa_per90_roll5",
+    "xgc_per90_roll5",
+    "minutes_roll5",
+    "bps_roll5",
+    "ict_index_roll5",
+    "dc_roll5",
+    "starts_rate_roll5",
+    "threat_roll5",
+    "creativity_roll5"
+   ]
+  },
+  {
+   "name": "Position",
+   "features": [
+    "pos_GK",
+    "pos_DEF",
+    "pos_MID",
+    "pos_FWD"
+   ]
+  },
+  {
+   "name": "Other",
+   "features": [
+    "days_since_last_match",
+    "matches_last_14d",
+    "is_congested",
+    "days_since_last_injury",
+    "injuries_last_365d",
+    "is_returning_from_injury",
+    "injury_data_available",
+    "muscle_injuries_last_365d",
+    "injury_congestion_risk"
+   ]
+  }
+ ],
+ "reference": {
+  "baseline": {
+   "r2": -0.3495,
+   "mae": 1.4292,
+   "rmse": 1.8254,
+   "train_r2": null,
+   "overfit_gap": null,
+   "r2_ci": [
+    -0.8466,
+    -0.0229
+   ],
+   "fit": null
+  },
+  "linear_regression": {
+   "r2": 0.5213,
+   "mae": 0.8517,
+   "rmse": 1.0871,
+   "train_r2": 0.6188,
+   "overfit_gap": 0.0975,
+   "r2_ci": [
+    0.3745,
+    0.6387
+   ],
+   "fit": "ok"
+  },
+  "random_forest": {
+   "r2": 0.5394,
+   "mae": 0.8592,
+   "rmse": 1.0664,
+   "train_r2": 0.7566,
+   "overfit_gap": 0.2172,
+   "r2_ci": [
+    0.4072,
+    0.6396
+   ],
+   "fit": "possible_overfit"
+  },
+  "xgboost": {
+   "r2": 0.4805,
+   "mae": 0.9023,
+   "rmse": 1.1325,
+   "train_r2": 0.9958,
+   "overfit_gap": 0.5153,
+   "r2_ci": [
+    0.3218,
+    0.6035
+   ],
+   "fit": "possible_overfit"
+  }
+ },
+ "importances": {
+  "random_forest": [
+   {
+    "feature": "season_points_per90_avg",
+    "importance": 0.74201
+   },
+   {
+    "feature": "price",
+    "importance": 0.03829
+   },
+   {
+    "feature": "bps_roll5",
+    "importance": 0.00873
+   },
+   {
+    "feature": "days_since_last_match",
+    "importance": 0.00793
+   },
+   {
+    "feature": "assists_per90_roll3",
+    "importance": 0.00775
+   },
+   {
+    "feature": "xgc_per90_roll3",
+    "importance": 0.0065
+   },
+   {
+    "feature": "ict_index_roll3",
+    "importance": 0.00646
+   },
+   {
+    "feature": "injuries_last_365d",
+    "importance": 0.00637
+   },
+   {
+    "feature": "goals_per90_roll5",
+    "importance": 0.00635
+   },
+   {
+    "feature": "own_defense_form",
+    "importance": 0.00604
+   },
+   {
+    "feature": "xg_per90_roll5",
+    "importance": 0.00604
+   },
+   {
+    "feature": "creativity_roll3",
+    "importance": 0.00591
+   },
+   {
+    "feature": "prev_season_points_per90",
+    "importance": 0.00591
+   },
+   {
+    "feature": "minutes_roll5",
+    "importance": 0.00588
+   },
+   {
+    "feature": "prev_season_total_points",
+    "importance": 0.00586
+   }
+  ],
+  "xgboost": [
+   {
+    "feature": "season_points_per90_avg",
+    "importance": 0.32508
+   },
+   {
+    "feature": "xgc_per90_roll5",
+    "importance": 0.02988
+   },
+   {
+    "feature": "dc_roll5",
+    "importance": 0.02458
+   },
+   {
+    "feature": "injuries_last_365d",
+    "importance": 0.02387
+   },
+   {
+    "feature": "minutes_roll5",
+    "importance": 0.02083
+   },
+   {
+    "feature": "xa_per90_roll3",
+    "importance": 0.02069
+   },
+   {
+    "feature": "assists_per90_roll3",
+    "importance": 0.0198
+   },
+   {
+    "feature": "muscle_injuries_last_365d",
+    "importance": 0.01961
+   },
+   {
+    "feature": "bps_roll3",
+    "importance": 0.01928
+   },
+   {
+    "feature": "xgc_per90_roll3",
+    "importance": 0.01825
+   },
+   {
+    "feature": "xg_per90_roll5",
+    "importance": 0.01761
+   },
+   {
+    "feature": "days_since_last_match",
+    "importance": 0.01749
+   },
+   {
+    "feature": "matches_last_14d",
+    "importance": 0.01672
+   },
+   {
+    "feature": "dc_roll3",
+    "importance": 0.01594
+   },
+   {
+    "feature": "ict_index_roll3",
+    "importance": 0.01571
+   }
+  ]
+ },
+ "experiments": [
+  {
+   "group": "Price & data flags",
+   "removed": [
+    "price",
+    "dc_data_available",
+    "xg_data_available"
+   ],
+   "n_kept": 50,
+   "models": {
+    "baseline": {
+     "r2": -0.3495,
+     "mae": 1.4292,
+     "rmse": 1.8254,
+     "train_r2": null,
+     "overfit_gap": null,
+     "r2_ci": [
+      -0.8466,
+      -0.0229
+     ],
+     "fit": null
+    },
+    "linear_regression": {
+     "r2": 0.4568,
+     "mae": 0.8998,
+     "rmse": 1.1581,
+     "train_r2": 0.5918,
+     "overfit_gap": 0.135,
+     "r2_ci": [
+      0.3002,
+      0.5828
+     ],
+     "fit": "ok",
+     "delta_r2": -0.0645,
+     "p_value": 0.0
+    },
+    "random_forest": {
+     "r2": 0.5073,
+     "mae": 0.878,
+     "rmse": 1.1029,
+     "train_r2": 0.7503,
+     "overfit_gap": 0.243,
+     "r2_ci": [
+      0.3777,
+      0.6144
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": -0.0321,
+     "p_value": 0.012
+    },
+    "xgboost": {
+     "r2": 0.4332,
+     "mae": 0.9562,
+     "rmse": 1.183,
+     "train_r2": 0.9948,
+     "overfit_gap": 0.5616,
+     "r2_ci": [
+      0.2676,
+      0.5612
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": -0.0473,
+     "p_value": 0.028
+    }
+   }
+  },
+  {
+   "group": "Season-to-date",
+   "removed": [
+    "season_points_per90_avg",
+    "season_minutes_avg"
+   ],
+   "n_kept": 51,
+   "models": {
+    "baseline": {
+     "r2": -0.3495,
+     "mae": 1.4292,
+     "rmse": 1.8254,
+     "train_r2": null,
+     "overfit_gap": null,
+     "r2_ci": [
+      -0.8466,
+      -0.0229
+     ],
+     "fit": null
+    },
+    "linear_regression": {
+     "r2": -0.1729,
+     "mae": 1.427,
+     "rmse": 1.7018,
+     "train_r2": 0.1345,
+     "overfit_gap": 0.3074,
+     "r2_ci": [
+      -0.4238,
+      0.0011
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": -0.6942,
+     "p_value": 0.0
+    },
+    "random_forest": {
+     "r2": 0.0586,
+     "mae": 1.2772,
+     "rmse": 1.5246,
+     "train_r2": 0.4134,
+     "overfit_gap": 0.3548,
+     "r2_ci": [
+      -0.0575,
+      0.1329
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": -0.4808,
+     "p_value": 0.0
+    },
+    "xgboost": {
+     "r2": -0.0617,
+     "mae": 1.3473,
+     "rmse": 1.6191,
+     "train_r2": 0.9854,
+     "overfit_gap": 1.0471,
+     "r2_ci": [
+      -0.2464,
+      0.0682
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": -0.5422,
+     "p_value": 0.0
+    }
+   }
+  },
+  {
+   "group": "Prior season",
+   "removed": [
+    "had_prior_season",
+    "prev_season_points_per90",
+    "prev_season_minutes_avg",
+    "prev_season_total_points"
+   ],
+   "n_kept": 49,
+   "models": {
+    "baseline": {
+     "r2": -0.3495,
+     "mae": 1.4292,
+     "rmse": 1.8254,
+     "train_r2": null,
+     "overfit_gap": null,
+     "r2_ci": [
+      -0.8466,
+      -0.0229
+     ],
+     "fit": null
+    },
+    "linear_regression": {
+     "r2": 0.5368,
+     "mae": 0.8375,
+     "rmse": 1.0694,
+     "train_r2": 0.616,
+     "overfit_gap": 0.0792,
+     "r2_ci": [
+      0.396,
+      0.6509
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0155,
+     "p_value": 0.016
+    },
+    "random_forest": {
+     "r2": 0.545,
+     "mae": 0.8549,
+     "rmse": 1.0599,
+     "train_r2": 0.7533,
+     "overfit_gap": 0.2083,
+     "r2_ci": [
+      0.4159,
+      0.6423
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": 0.0056,
+     "p_value": 0.2
+    },
+    "xgboost": {
+     "r2": 0.4985,
+     "mae": 0.8789,
+     "rmse": 1.1128,
+     "train_r2": 0.9953,
+     "overfit_gap": 0.4968,
+     "r2_ci": [
+      0.3471,
+      0.618
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": 0.018,
+     "p_value": 0.25
+    }
+   }
+  },
+  {
+   "group": "Fixture & opponent strength",
+   "removed": [
+    "was_home",
+    "own_attack_form",
+    "own_defense_form",
+    "opp_attack_form",
+    "opp_defense_form"
+   ],
+   "n_kept": 48,
+   "models": {
+    "baseline": {
+     "r2": -0.3495,
+     "mae": 1.4292,
+     "rmse": 1.8254,
+     "train_r2": null,
+     "overfit_gap": null,
+     "r2_ci": [
+      -0.8466,
+      -0.0229
+     ],
+     "fit": null
+    },
+    "linear_regression": {
+     "r2": 0.5301,
+     "mae": 0.8622,
+     "rmse": 1.0772,
+     "train_r2": 0.6104,
+     "overfit_gap": 0.0803,
+     "r2_ci": [
+      0.3883,
+      0.6416
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0088,
+     "p_value": 0.436
+    },
+    "random_forest": {
+     "r2": 0.5402,
+     "mae": 0.8606,
+     "rmse": 1.0654,
+     "train_r2": 0.7542,
+     "overfit_gap": 0.214,
+     "r2_ci": [
+      0.4092,
+      0.6393
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": 0.0008,
+     "p_value": 0.814
+    },
+    "xgboost": {
+     "r2": 0.4875,
+     "mae": 0.8933,
+     "rmse": 1.1249,
+     "train_r2": 0.9958,
+     "overfit_gap": 0.5083,
+     "r2_ci": [
+      0.3365,
+      0.5975
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": 0.007,
+     "p_value": 0.63
+    }
+   }
+  },
+  {
+   "group": "Rolling form (3 GW)",
+   "removed": [
+    "points_per90_roll3",
+    "goals_per90_roll3",
+    "assists_per90_roll3",
+    "xg_per90_roll3",
+    "xa_per90_roll3",
+    "xgc_per90_roll3",
+    "minutes_roll3",
+    "bps_roll3",
+    "ict_index_roll3",
+    "dc_roll3",
+    "starts_rate_roll3",
+    "threat_roll3",
+    "creativity_roll3"
+   ],
+   "n_kept": 40,
+   "models": {
+    "baseline": {
+     "r2": -0.3495,
+     "mae": 1.4292,
+     "rmse": 1.8254,
+     "train_r2": null,
+     "overfit_gap": null,
+     "r2_ci": [
+      -0.8466,
+      -0.0229
+     ],
+     "fit": null
+    },
+    "linear_regression": {
+     "r2": 0.551,
+     "mae": 0.8287,
+     "rmse": 1.0529,
+     "train_r2": 0.6051,
+     "overfit_gap": 0.0541,
+     "r2_ci": [
+      0.4161,
+      0.6543
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0297,
+     "p_value": 0.05
+    },
+    "random_forest": {
+     "r2": 0.5577,
+     "mae": 0.8435,
+     "rmse": 1.045,
+     "train_r2": 0.75,
+     "overfit_gap": 0.1923,
+     "r2_ci": [
+      0.4369,
+      0.6513
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": 0.0183,
+     "p_value": 0.002
+    },
+    "xgboost": {
+     "r2": 0.5273,
+     "mae": 0.8768,
+     "rmse": 1.0803,
+     "train_r2": 0.995,
+     "overfit_gap": 0.4677,
+     "r2_ci": [
+      0.3872,
+      0.6272
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": 0.0468,
+     "p_value": 0.058
+    }
+   }
+  },
+  {
+   "group": "Rolling form (5 GW)",
+   "removed": [
+    "points_per90_roll5",
+    "goals_per90_roll5",
+    "assists_per90_roll5",
+    "xg_per90_roll5",
+    "xa_per90_roll5",
+    "xgc_per90_roll5",
+    "minutes_roll5",
+    "bps_roll5",
+    "ict_index_roll5",
+    "dc_roll5",
+    "starts_rate_roll5",
+    "threat_roll5",
+    "creativity_roll5"
+   ],
+   "n_kept": 40,
+   "models": {
+    "baseline": {
+     "r2": -0.3495,
+     "mae": 1.4292,
+     "rmse": 1.8254,
+     "train_r2": null,
+     "overfit_gap": null,
+     "r2_ci": [
+      -0.8466,
+      -0.0229
+     ],
+     "fit": null
+    },
+    "linear_regression": {
+     "r2": 0.5446,
+     "mae": 0.8397,
+     "rmse": 1.0604,
+     "train_r2": 0.6128,
+     "overfit_gap": 0.0682,
+     "r2_ci": [
+      0.4025,
+      0.653
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0233,
+     "p_value": 0.02
+    },
+    "random_forest": {
+     "r2": 0.5471,
+     "mae": 0.8561,
+     "rmse": 1.0575,
+     "train_r2": 0.7508,
+     "overfit_gap": 0.2037,
+     "r2_ci": [
+      0.4161,
+      0.6423
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": 0.0077,
+     "p_value": 0.156
+    },
+    "xgboost": {
+     "r2": 0.5202,
+     "mae": 0.8542,
+     "rmse": 1.0884,
+     "train_r2": 0.9917,
+     "overfit_gap": 0.4715,
+     "r2_ci": [
+      0.3734,
+      0.6292
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": 0.0397,
+     "p_value": 0.046
+    }
+   }
+  },
+  {
+   "group": "Position",
+   "removed": [
+    "pos_GK",
+    "pos_DEF",
+    "pos_MID",
+    "pos_FWD"
+   ],
+   "n_kept": 49,
+   "models": {
+    "baseline": {
+     "r2": -0.3495,
+     "mae": 1.4292,
+     "rmse": 1.8254,
+     "train_r2": null,
+     "overfit_gap": null,
+     "r2_ci": [
+      -0.8466,
+      -0.0229
+     ],
+     "fit": null
+    },
+    "linear_regression": {
+     "r2": 0.5213,
+     "mae": 0.8517,
+     "rmse": 1.0871,
+     "train_r2": 0.6188,
+     "overfit_gap": 0.0975,
+     "r2_ci": [
+      0.3745,
+      0.6387
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0,
+     "p_value": 0.152
+    },
+    "random_forest": {
+     "r2": 0.5394,
+     "mae": 0.8592,
+     "rmse": 1.0664,
+     "train_r2": 0.7566,
+     "overfit_gap": 0.2172,
+     "r2_ci": [
+      0.4072,
+      0.6396
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": 0.0,
+     "p_value": 1.0
+    },
+    "xgboost": {
+     "r2": 0.4805,
+     "mae": 0.9023,
+     "rmse": 1.1325,
+     "train_r2": 0.9958,
+     "overfit_gap": 0.5153,
+     "r2_ci": [
+      0.3218,
+      0.6035
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": 0.0,
+     "p_value": 1.0
+    }
+   }
+  },
+  {
+   "group": "Other",
+   "removed": [
+    "days_since_last_match",
+    "matches_last_14d",
+    "is_congested",
+    "days_since_last_injury",
+    "injuries_last_365d",
+    "is_returning_from_injury",
+    "injury_data_available",
+    "muscle_injuries_last_365d",
+    "injury_congestion_risk"
+   ],
+   "n_kept": 44,
+   "models": {
+    "baseline": {
+     "r2": -0.3495,
+     "mae": 1.4292,
+     "rmse": 1.8254,
+     "train_r2": null,
+     "overfit_gap": null,
+     "r2_ci": [
+      -0.8466,
+      -0.0229
+     ],
+     "fit": null
+    },
+    "linear_regression": {
+     "r2": 0.525,
+     "mae": 0.8529,
+     "rmse": 1.083,
+     "train_r2": 0.6134,
+     "overfit_gap": 0.0884,
+     "r2_ci": [
+      0.377,
+      0.6387
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0037,
+     "p_value": 0.704
+    },
+    "random_forest": {
+     "r2": 0.542,
+     "mae": 0.8585,
+     "rmse": 1.0634,
+     "train_r2": 0.7503,
+     "overfit_gap": 0.2083,
+     "r2_ci": [
+      0.412,
+      0.6414
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": 0.0026,
+     "p_value": 0.624
+    },
+    "xgboost": {
+     "r2": 0.4772,
+     "mae": 0.9034,
+     "rmse": 1.1361,
+     "train_r2": 0.9943,
+     "overfit_gap": 0.5171,
+     "r2_ci": [
+      0.3198,
+      0.5988
+     ],
+     "fit": "possible_overfit",
+     "delta_r2": -0.0033,
+     "p_value": 0.886
+    }
+   }
+  }
+ ]
+}
