@@ -1,0 +1,88 @@
+---
+import Base from "../../layouts/Base.astro";
+import { load } from "../../lib/data";
+import { GRADE_NAMES, type FixturesPage } from "../../lib/pages/fixtures";
+const { data, isSample } = load<FixturesPage>("fixtures");
+const best = data.teams[0];
+const worst = data.teams[data.teams.length - 1];
+---
+<Base title="Fixtures" active="Fixtures" sample={isSample}>
+  <p class="eyebrow">Fixtures</p>
+  <h2>Next {data.horizon} gameweeks</h2>
+  <p class="muted intro">
+    This project's own fixture-difficulty score, from each team's rolling attack and defence form. It is not FPL's published
+    ratings, and the two often disagree. Each fixture shows its grade from 1 (easiest) to 5 (hardest). A double gameweek shows
+    both fixtures joined with a plus; a blank gameweek is a dash.
+  </p>
+
+  {data.teams.length === 0 ? (
+    <p class="card empty muted">No upcoming fixtures yet. They appear after the next data refresh.</p>
+  ) : (
+    <>
+      <p class="key" aria-label="Difficulty key">
+        <span class="muted">Difficulty:</span>
+        {GRADE_NAMES.map((n, i) => <span class="chip"><b class={`g g${i + 1}`}>{i + 1}</b> {n}</span>)}
+      </p>
+      <div class="scroll card" tabindex="0" role="region" aria-label="Fixture difficulty grid">
+        <table>
+          <caption class="sr-only">Each team's fixtures by gameweek, easiest run first. H is home, A is away; the number is the difficulty grade.</caption>
+          <thead>
+            <tr>
+              <th scope="col">Team</th>
+              {data.gws.map((g) => <th scope="col">GW{g}</th>)}
+              <th scope="col">Run</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.teams.map((t) => (
+              <tr>
+                <th scope="row">{t.team}</th>
+                {t.cells.map((c) => c === null ? (
+                  <td class="blank"><span class="sr-only">No fixture</span><span aria-hidden="true">—</span></td>
+                ) : (
+                  <td class={c.grade === null ? "blank" : `g g${c.grade}`}>
+                    {c.fx.map((f, i) => (
+                      <>{i > 0 && " + "}<span class="fx">{f.opp} ({f.home ? "H" : "A"}){f.grade !== null && ` · ${f.grade}`}</span></>
+                    ))}
+                  </td>
+                ))}
+                <td class="run">{t.run}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div class="notes">
+        <p class="card"><b>{best.team}: best run in the window.</b><br /><span class="muted">Lowest average fixture difficulty over the next {data.horizon} gameweeks.</span></p>
+        <p class="card"><b>{worst.team}: hardest run in the window.</b><br /><span class="muted">Highest average fixture difficulty over the next {data.horizon} gameweeks.</span></p>
+      </div>
+    </>
+  )}
+</Base>
+
+<style>
+  h2 { font: 900 clamp(30px, 5vw, 40px)/1 var(--display); text-transform: uppercase; }
+  .intro { margin: 8px 0 18px; max-width: 68ch; }
+  .key { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 13px; margin-bottom: 12px; }
+  .chip { display: inline-flex; gap: 6px; align-items: center; }
+  .chip b { display: inline-block; width: 24px; text-align: center; border-radius: 4px; line-height: 18px; font-size: 12px; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+  thead th { background: var(--surface-2); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  tbody th { position: sticky; left: 0; background: var(--surface); }
+  .fx { white-space: nowrap; }
+  .run { color: var(--muted); }
+  td.blank { color: var(--muted); background: var(--surface); }
+  /* The Streamlit tab's FIXTURE_SCALE; every pair is 4.5:1 or better. The grade is also written in each cell. */
+  .g1 { background: #7BE495; color: #0B0F0D; }
+  .g2 { background: #166534; color: #F2F5F0; font-weight: 600; }
+  .g3 { background: #24352B; color: #F2F5F0; }
+  .g4 { background: #FFE14D; color: #0B0F0D; font-weight: 600; }
+  .g5 { background: #D7263D; color: #FFFFFF; font-weight: 600; }
+  .g1, .g2, .g4, .g5 { font-weight: 600; }
+  .g3 { font-weight: 400; }
+  .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 18px; }
+  .notes p { padding: 14px 16px; }
+  .empty { padding: 20px; }
+</style>

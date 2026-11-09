@@ -3,4 +3,9 @@ dist/
 .astro/
 .wrangler/
 # Written by the deploy workflow from the live database (python -m src.web_data.export) - never committed.
+src/data/site.json
+src/data/players.json
+src/data/fixtures.json
+src/data/optimal-squad.json
 src/data/this-week.json
+src/data/season.json

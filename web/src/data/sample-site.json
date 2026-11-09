@@ -1,0 +1,12 @@
+{
+ "generated_at": "2026-10-11T08:31:42Z",
+ "season": "2026-27",
+ "last_gw": 7,
+ "predicted_gw": 8,
+ "deadline": {
+  "event_id": 8,
+  "name": "Gameweek 8",
+  "time": "2026-10-13T09:27:36Z"
+ },
+ "horizon": 5
+}

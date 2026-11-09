@@ -1,0 +1,841 @@
+{
+ "generated_at": "2026-11-08T22:35:13Z",
+ "test_season": "2025-26",
+ "train_seasons": [
+  "2020-21",
+  "2021-22",
+  "2022-23",
+  "2023-24",
+  "2024-25"
+ ],
+ "n_train": 123911,
+ "n_test": 28648,
+ "sample_frac": null,
+ "n_features": 54,
+ "bootstrap_draws": 1000,
+ "overfit_gap_threshold": 0.15,
+ "groups": [
+  {
+   "name": "Price & data flags",
+   "features": [
+    "price",
+    "dc_data_available",
+    "xg_data_available"
+   ]
+  },
+  {
+   "name": "Season-to-date",
+   "features": [
+    "season_points_per90_avg",
+    "season_minutes_avg"
+   ]
+  },
+  {
+   "name": "Prior season",
+   "features": [
+    "had_prior_season",
+    "prev_season_points_per90",
+    "prev_season_minutes_avg",
+    "prev_season_total_points"
+   ]
+  },
+  {
+   "name": "Fixture & opponent strength",
+   "features": [
+    "was_home",
+    "own_attack_form",
+    "own_defense_form",
+    "opp_attack_form",
+    "opp_defense_form"
+   ]
+  },
+  {
+   "name": "Rolling form (3 GW)",
+   "features": [
+    "points_per90_roll3",
+    "goals_per90_roll3",
+    "assists_per90_roll3",
+    "xg_per90_roll3",
+    "xa_per90_roll3",
+    "xgc_per90_roll3",
+    "minutes_roll3",
+    "bps_roll3",
+    "ict_index_roll3",
+    "dc_roll3",
+    "starts_rate_roll3",
+    "threat_roll3",
+    "creativity_roll3"
+   ]
+  },
+  {
+   "name": "Rolling form (5 GW)",
+   "features": [
+    "points_per90_roll5",
+    "goals_per90_roll5",
+    "assists_per90_roll5",
+    "xg_per90_roll5",
+    "xa_per90_roll5",
+    "xgc_per90_roll5",
+    "minutes_roll5",
+    "bps_roll5",
+    "ict_index_roll5",
+    "dc_roll5",
+    "starts_rate_roll5",
+    "threat_roll5",
+    "creativity_roll5"
+   ]
+  },
+  {
+   "name": "Position",
+   "features": [
+    "pos_DEF",
+    "pos_FWD",
+    "pos_GK",
+    "pos_GKP",
+    "pos_MID"
+   ]
+  },
+  {
+   "name": "Other",
+   "features": [
+    "days_since_last_match",
+    "matches_last_14d",
+    "is_congested",
+    "days_since_last_injury",
+    "injuries_last_365d",
+    "is_returning_from_injury",
+    "injury_data_available",
+    "muscle_injuries_last_365d",
+    "injury_congestion_risk"
+   ]
+  }
+ ],
+ "reference": {
+  "baseline": {
+   "r2": 0.2345,
+   "mae": 1.0688,
+   "rmse": 2.0863,
+   "train_r2": null,
+   "overfit_gap": null,
+   "r2_ci": [
+    0.2201,
+    0.249
+   ],
+   "fit": null
+  },
+  "linear_regression": {
+   "r2": 0.3093,
+   "mae": 1.0699,
+   "rmse": 1.9818,
+   "train_r2": 0.2935,
+   "overfit_gap": -0.0158,
+   "r2_ci": [
+    0.2994,
+    0.3192
+   ],
+   "fit": "ok"
+  },
+  "random_forest": {
+   "r2": 0.3185,
+   "mae": 1.0213,
+   "rmse": 1.9685,
+   "train_r2": 0.3216,
+   "overfit_gap": 0.0031,
+   "r2_ci": [
+    0.3092,
+    0.3282
+   ],
+   "fit": "ok"
+  },
+  "xgboost": {
+   "r2": 0.3222,
+   "mae": 1.0133,
+   "rmse": 1.9632,
+   "train_r2": 0.4074,
+   "overfit_gap": 0.0852,
+   "r2_ci": [
+    0.3111,
+    0.3331
+   ],
+   "fit": "ok"
+  }
+ },
+ "importances": {
+  "random_forest": [
+   {
+    "feature": "minutes_roll3",
+    "importance": 0.60899
+   },
+   {
+    "feature": "ict_index_roll3",
+    "importance": 0.1429
+   },
+   {
+    "feature": "ict_index_roll5",
+    "importance": 0.07219
+   },
+   {
+    "feature": "days_since_last_injury",
+    "importance": 0.0627
+   },
+   {
+    "feature": "price",
+    "importance": 0.04208
+   },
+   {
+    "feature": "season_minutes_avg",
+    "importance": 0.01601
+   },
+   {
+    "feature": "bps_roll3",
+    "importance": 0.0092
+   },
+   {
+    "feature": "season_points_per90_avg",
+    "importance": 0.00802
+   },
+   {
+    "feature": "injuries_last_365d",
+    "importance": 0.00582
+   },
+   {
+    "feature": "prev_season_total_points",
+    "importance": 0.00513
+   },
+   {
+    "feature": "minutes_roll5",
+    "importance": 0.00449
+   },
+   {
+    "feature": "opp_attack_form",
+    "importance": 0.00307
+   },
+   {
+    "feature": "bps_roll5",
+    "importance": 0.00225
+   },
+   {
+    "feature": "was_home",
+    "importance": 0.00155
+   },
+   {
+    "feature": "points_per90_roll5",
+    "importance": 0.00146
+   }
+  ],
+  "xgboost": [
+   {
+    "feature": "minutes_roll3",
+    "importance": 0.33123
+   },
+   {
+    "feature": "ict_index_roll3",
+    "importance": 0.19787
+   },
+   {
+    "feature": "ict_index_roll5",
+    "importance": 0.0502
+   },
+   {
+    "feature": "was_home",
+    "importance": 0.03469
+   },
+   {
+    "feature": "days_since_last_injury",
+    "importance": 0.02991
+   },
+   {
+    "feature": "is_returning_from_injury",
+    "importance": 0.01873
+   },
+   {
+    "feature": "is_congested",
+    "importance": 0.01819
+   },
+   {
+    "feature": "pos_GK",
+    "importance": 0.01734
+   },
+   {
+    "feature": "season_minutes_avg",
+    "importance": 0.01681
+   },
+   {
+    "feature": "price",
+    "importance": 0.01439
+   },
+   {
+    "feature": "points_per90_roll3",
+    "importance": 0.0122
+   },
+   {
+    "feature": "season_points_per90_avg",
+    "importance": 0.01177
+   },
+   {
+    "feature": "bps_roll3",
+    "importance": 0.01111
+   },
+   {
+    "feature": "matches_last_14d",
+    "importance": 0.01098
+   },
+   {
+    "feature": "prev_season_total_points",
+    "importance": 0.01058
+   }
+  ]
+ },
+ "experiments": [
+  {
+   "group": "Price & data flags",
+   "removed": [
+    "price",
+    "dc_data_available",
+    "xg_data_available"
+   ],
+   "n_kept": 51,
+   "models": {
+    "baseline": {
+     "r2": 0.2345,
+     "mae": 1.0688,
+     "rmse": 2.0863,
+     "train_r2": null,
+     "overfit_gap": null,
+     "r2_ci": [
+      0.2201,
+      0.249
+     ],
+     "fit": null
+    },
+    "linear_regression": {
+     "r2": 0.3078,
+     "mae": 1.063,
+     "rmse": 1.9839,
+     "train_r2": 0.2893,
+     "overfit_gap": -0.0185,
+     "r2_ci": [
+      0.2985,
+      0.3172
+     ],
+     "fit": "ok",
+     "delta_r2": -0.0015,
+     "p_value": 0.116
+    },
+    "random_forest": {
+     "r2": 0.3186,
+     "mae": 1.0156,
+     "rmse": 1.9684,
+     "train_r2": 0.3176,
+     "overfit_gap": -0.001,
+     "r2_ci": [
+      0.3094,
+      0.328
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0001,
+     "p_value": 0.926
+    },
+    "xgboost": {
+     "r2": 0.3256,
+     "mae": 1.0006,
+     "rmse": 1.9582,
+     "train_r2": 0.407,
+     "overfit_gap": 0.0814,
+     "r2_ci": [
+      0.3148,
+      0.3366
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0034,
+     "p_value": 0.038
+    }
+   }
+  },
+  {
+   "group": "Season-to-date",
+   "removed": [
+    "season_points_per90_avg",
+    "season_minutes_avg"
+   ],
+   "n_kept": 52,
+   "models": {
+    "baseline": {
+     "r2": 0.2345,
+     "mae": 1.0688,
+     "rmse": 2.0863,
+     "train_r2": null,
+     "overfit_gap": null,
+     "r2_ci": [
+      0.2201,
+      0.249
+     ],
+     "fit": null
+    },
+    "linear_regression": {
+     "r2": 0.3045,
+     "mae": 1.0732,
+     "rmse": 1.9886,
+     "train_r2": 0.2905,
+     "overfit_gap": -0.014,
+     "r2_ci": [
+      0.2947,
+      0.3146
+     ],
+     "fit": "ok",
+     "delta_r2": -0.0048,
+     "p_value": 0.0
+    },
+    "random_forest": {
+     "r2": 0.3137,
+     "mae": 1.0226,
+     "rmse": 1.9755,
+     "train_r2": 0.3191,
+     "overfit_gap": 0.0054,
+     "r2_ci": [
+      0.3042,
+      0.3235
+     ],
+     "fit": "ok",
+     "delta_r2": -0.0048,
+     "p_value": 0.0
+    },
+    "xgboost": {
+     "r2": 0.3178,
+     "mae": 1.0073,
+     "rmse": 1.9696,
+     "train_r2": 0.4046,
+     "overfit_gap": 0.0868,
+     "r2_ci": [
+      0.3071,
+      0.3289
+     ],
+     "fit": "ok",
+     "delta_r2": -0.0044,
+     "p_value": 0.004
+    }
+   }
+  },
+  {
+   "group": "Prior season",
+   "removed": [
+    "had_prior_season",
+    "prev_season_points_per90",
+    "prev_season_minutes_avg",
+    "prev_season_total_points"
+   ],
+   "n_kept": 50,
+   "models": {
+    "baseline": {
+     "r2": 0.2345,
+     "mae": 1.0688,
+     "rmse": 2.0863,
+     "train_r2": null,
+     "overfit_gap": null,
+     "r2_ci": [
+      0.2201,
+      0.249
+     ],
+     "fit": null
+    },
+    "linear_regression": {
+     "r2": 0.3097,
+     "mae": 1.0725,
+     "rmse": 1.9811,
+     "train_r2": 0.2931,
+     "overfit_gap": -0.0166,
+     "r2_ci": [
+      0.3001,
+      0.3198
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0004,
+     "p_value": 0.134
+    },
+    "random_forest": {
+     "r2": 0.3185,
+     "mae": 1.0209,
+     "rmse": 1.9685,
+     "train_r2": 0.3209,
+     "overfit_gap": 0.0024,
+     "r2_ci": [
+      0.3092,
+      0.3281
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0,
+     "p_value": 0.964
+    },
+    "xgboost": {
+     "r2": 0.3246,
+     "mae": 1.014,
+     "rmse": 1.9598,
+     "train_r2": 0.4065,
+     "overfit_gap": 0.0819,
+     "r2_ci": [
+      0.3138,
+      0.3356
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0024,
+     "p_value": 0.024
+    }
+   }
+  },
+  {
+   "group": "Fixture & opponent strength",
+   "removed": [
+    "was_home",
+    "own_attack_form",
+    "own_defense_form",
+    "opp_attack_form",
+    "opp_defense_form"
+   ],
+   "n_kept": 49,
+   "models": {
+    "baseline": {
+     "r2": 0.2345,
+     "mae": 1.0688,
+     "rmse": 2.0863,
+     "train_r2": null,
+     "overfit_gap": null,
+     "r2_ci": [
+      0.2201,
+      0.249
+     ],
+     "fit": null
+    },
+    "linear_regression": {
+     "r2": 0.3079,
+     "mae": 1.0571,
+     "rmse": 1.9838,
+     "train_r2": 0.2912,
+     "overfit_gap": -0.0167,
+     "r2_ci": [
+      0.2982,
+      0.3181
+     ],
+     "fit": "ok",
+     "delta_r2": -0.0014,
+     "p_value": 0.002
+    },
+    "random_forest": {
+     "r2": 0.3172,
+     "mae": 1.0215,
+     "rmse": 1.9705,
+     "train_r2": 0.3203,
+     "overfit_gap": 0.0031,
+     "r2_ci": [
+      0.3078,
+      0.3268
+     ],
+     "fit": "ok",
+     "delta_r2": -0.0013,
+     "p_value": 0.0
+    },
+    "xgboost": {
+     "r2": 0.3205,
+     "mae": 1.0118,
+     "rmse": 1.9657,
+     "train_r2": 0.4005,
+     "overfit_gap": 0.08,
+     "r2_ci": [
+      0.3099,
+      0.3309
+     ],
+     "fit": "ok",
+     "delta_r2": -0.0017,
+     "p_value": 0.346
+    }
+   }
+  },
+  {
+   "group": "Rolling form (3 GW)",
+   "removed": [
+    "points_per90_roll3",
+    "goals_per90_roll3",
+    "assists_per90_roll3",
+    "xg_per90_roll3",
+    "xa_per90_roll3",
+    "xgc_per90_roll3",
+    "minutes_roll3",
+    "bps_roll3",
+    "ict_index_roll3",
+    "dc_roll3",
+    "starts_rate_roll3",
+    "threat_roll3",
+    "creativity_roll3"
+   ],
+   "n_kept": 41,
+   "models": {
+    "baseline": {
+     "r2": 0.2345,
+     "mae": 1.0688,
+     "rmse": 2.0863,
+     "train_r2": null,
+     "overfit_gap": null,
+     "r2_ci": [
+      0.2201,
+      0.249
+     ],
+     "fit": null
+    },
+    "linear_regression": {
+     "r2": 0.2963,
+     "mae": 1.0899,
+     "rmse": 2.0003,
+     "train_r2": 0.2866,
+     "overfit_gap": -0.0097,
+     "r2_ci": [
+      0.2867,
+      0.3066
+     ],
+     "fit": "ok",
+     "delta_r2": -0.013,
+     "p_value": 0.0
+    },
+    "random_forest": {
+     "r2": 0.305,
+     "mae": 1.0379,
+     "rmse": 1.9879,
+     "train_r2": 0.3143,
+     "overfit_gap": 0.0093,
+     "r2_ci": [
+      0.2956,
+      0.3149
+     ],
+     "fit": "ok",
+     "delta_r2": -0.0135,
+     "p_value": 0.0
+    },
+    "xgboost": {
+     "r2": 0.3123,
+     "mae": 1.029,
+     "rmse": 1.9774,
+     "train_r2": 0.3976,
+     "overfit_gap": 0.0853,
+     "r2_ci": [
+      0.3012,
+      0.3235
+     ],
+     "fit": "ok",
+     "delta_r2": -0.0099,
+     "p_value": 0.0
+    }
+   }
+  },
+  {
+   "group": "Rolling form (5 GW)",
+   "removed": [
+    "points_per90_roll5",
+    "goals_per90_roll5",
+    "assists_per90_roll5",
+    "xg_per90_roll5",
+    "xa_per90_roll5",
+    "xgc_per90_roll5",
+    "minutes_roll5",
+    "bps_roll5",
+    "ict_index_roll5",
+    "dc_roll5",
+    "starts_rate_roll5",
+    "threat_roll5",
+    "creativity_roll5"
+   ],
+   "n_kept": 41,
+   "models": {
+    "baseline": {
+     "r2": 0.2345,
+     "mae": 1.0688,
+     "rmse": 2.0863,
+     "train_r2": null,
+     "overfit_gap": null,
+     "r2_ci": [
+      0.2201,
+      0.249
+     ],
+     "fit": null
+    },
+    "linear_regression": {
+     "r2": 0.3091,
+     "mae": 1.0718,
+     "rmse": 1.9821,
+     "train_r2": 0.2926,
+     "overfit_gap": -0.0165,
+     "r2_ci": [
+      0.2993,
+      0.3192
+     ],
+     "fit": "ok",
+     "delta_r2": -0.0002,
+     "p_value": 0.56
+    },
+    "random_forest": {
+     "r2": 0.322,
+     "mae": 1.0212,
+     "rmse": 1.9635,
+     "train_r2": 0.3206,
+     "overfit_gap": -0.0014,
+     "r2_ci": [
+      0.3125,
+      0.3316
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0035,
+     "p_value": 0.002
+    },
+    "xgboost": {
+     "r2": 0.3279,
+     "mae": 1.01,
+     "rmse": 1.955,
+     "train_r2": 0.403,
+     "overfit_gap": 0.0751,
+     "r2_ci": [
+      0.317,
+      0.3385
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0057,
+     "p_value": 0.0
+    }
+   }
+  },
+  {
+   "group": "Position",
+   "removed": [
+    "pos_DEF",
+    "pos_FWD",
+    "pos_GK",
+    "pos_GKP",
+    "pos_MID"
+   ],
+   "n_kept": 49,
+   "models": {
+    "baseline": {
+     "r2": 0.2345,
+     "mae": 1.0688,
+     "rmse": 2.0863,
+     "train_r2": null,
+     "overfit_gap": null,
+     "r2_ci": [
+      0.2201,
+      0.249
+     ],
+     "fit": null
+    },
+    "linear_regression": {
+     "r2": 0.3095,
+     "mae": 1.0692,
+     "rmse": 1.9815,
+     "train_r2": 0.293,
+     "overfit_gap": -0.0165,
+     "r2_ci": [
+      0.2996,
+      0.3194
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0002,
+     "p_value": 0.348
+    },
+    "random_forest": {
+     "r2": 0.3187,
+     "mae": 1.0213,
+     "rmse": 1.9683,
+     "train_r2": 0.3215,
+     "overfit_gap": 0.0028,
+     "r2_ci": [
+      0.3093,
+      0.3283
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0002,
+     "p_value": 0.038
+    },
+    "xgboost": {
+     "r2": 0.3234,
+     "mae": 1.0125,
+     "rmse": 1.9614,
+     "train_r2": 0.4082,
+     "overfit_gap": 0.0848,
+     "r2_ci": [
+      0.3123,
+      0.3341
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0012,
+     "p_value": 0.188
+    }
+   }
+  },
+  {
+   "group": "Other",
+   "removed": [
+    "days_since_last_match",
+    "matches_last_14d",
+    "is_congested",
+    "days_since_last_injury",
+    "injuries_last_365d",
+    "is_returning_from_injury",
+    "injury_data_available",
+    "muscle_injuries_last_365d",
+    "injury_congestion_risk"
+   ],
+   "n_kept": 45,
+   "models": {
+    "baseline": {
+     "r2": 0.2345,
+     "mae": 1.0688,
+     "rmse": 2.0863,
+     "train_r2": null,
+     "overfit_gap": null,
+     "r2_ci": [
+      0.2201,
+      0.249
+     ],
+     "fit": null
+    },
+    "linear_regression": {
+     "r2": 0.3114,
+     "mae": 1.0329,
+     "rmse": 1.9788,
+     "train_r2": 0.287,
+     "overfit_gap": -0.0244,
+     "r2_ci": [
+      0.3017,
+      0.3218
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0021,
+     "p_value": 0.0
+    },
+    "random_forest": {
+     "r2": 0.3231,
+     "mae": 0.9968,
+     "rmse": 1.9619,
+     "train_r2": 0.3069,
+     "overfit_gap": -0.0162,
+     "r2_ci": [
+      0.3136,
+      0.333
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0046,
+     "p_value": 0.0
+    },
+    "xgboost": {
+     "r2": 0.3275,
+     "mae": 0.9927,
+     "rmse": 1.9556,
+     "train_r2": 0.3836,
+     "overfit_gap": 0.0561,
+     "r2_ci": [
+      0.3164,
+      0.3378
+     ],
+     "fit": "ok",
+     "delta_r2": 0.0053,
+     "p_value": 0.002
+    }
+   }
+  }
+ ]
+}

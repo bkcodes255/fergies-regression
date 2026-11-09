@@ -1,5 +1,6 @@
 ---
-import { data, ukTime } from "../lib/data";
+import { site as data } from "../lib/data";
+import { ukTime } from "../lib/format";
 const gw = data.deadline ? `GW${data.deadline.event_id}` : "—";
 const meta = [data.season, data.predicted_gw && `predictions for GW${data.predicted_gw}`, data.last_gw && `data to GW${data.last_gw}`]
   .filter(Boolean).join(" · ");
@@ -7,7 +8,7 @@ const label = data.deadline ? `Deadline · ${ukTime(data.deadline.time)}` : "No 
 ---
 <div class="bar" role="banner">
   <div class="gw">{gw}</div>
-  <div class="title"><h1>Fergie's Regression · Team talk</h1><span>{meta}</span></div>
+  <div class="title"><h1>Fergie's Regression</h1><span>{meta}</span></div>
   <div class="clock" data-deadline={data.deadline?.time ?? ""}>
     <small>{label}</small>
     <b aria-live="off">—</b>

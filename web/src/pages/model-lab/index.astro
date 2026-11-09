@@ -1,0 +1,176 @@
+---
+import Base from "../../layouts/Base.astro";
+import { load } from "../../lib/data";
+import {
+  type ModelLab, FITTED, MODEL_LABEL, ALPHA, verdict, VERDICT_TEXT, FIT_TEXT, num, signed, pText,
+} from "../../lib/pages/model-lab";
+const { data, isSample } = load<ModelLab>("model-lab");
+const ran = new Date(data.generated_at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+const trained = `${data.train_seasons[0]} to ${data.train_seasons[data.train_seasons.length - 1]}`;
+const fmt = (n: number) => n.toLocaleString("en-GB");
+const maxImp = (m: "random_forest" | "xgboost") => Math.max(...data.importances[m].map((i) => i.importance), 1e-9);
+---
+<Base title="Model Lab" active="Model Lab" sample={isSample}>
+  <h2 class="disp">Model Lab</h2>
+  <p class="lede muted">
+    What happens to the predictions when we take a group of inputs away? These are results from one fixed run on {ran},
+    not a live tool. Nothing here retrains when you open the page.
+  </p>
+
+  <section class="card how" aria-labelledby="how">
+    <h3 id="how">How to read this</h3>
+    <ul>
+      <li>Models learn from {trained} ({fmt(data.n_train)} player-gameweeks) and are scored on the held-out season, {data.test_season} ({fmt(data.n_test)} player-gameweeks). They never see that season in training.</li>
+      <li>{data.sample_frac !== null
+        ? `This run used a ${Math.round(data.sample_frac * 100)}% sample of the training rows, so it is a preview.`
+        : "This run used every training row."} The results come from {data.n_features} inputs, in {data.groups.length} groups.</li>
+      <li><strong>R&sup2;</strong> is the share of the spread in points the model explains. Higher is better; 0 is no better than guessing the average. <strong>MAE</strong> and <strong>RMSE</strong> are the typical miss in points. Lower is better.</li>
+      <li>The naive baseline is each player's season-to-date points per 90 times their usual minutes. A model that can't beat it isn't adding much.</li>
+      <li>A change only counts as real if the paired bootstrap test says so (p under {ALPHA}, {fmt(data.bootstrap_draws)} resamples of the same {data.test_season} games). One season is a small sample, so small gaps are noise. We say "no clear difference" for those, never "improvement".</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="ref">
+    <h3 id="ref">All inputs</h3>
+    <p class="muted sub">The reference run. Every experiment below is compared with these rows.</p>
+    <div class="scroll card" tabindex="0" role="region" aria-label="All-inputs results, scrolls sideways on small screens">
+      <table>
+        <caption class="sr-only">Accuracy on {data.test_season} with every input</caption>
+        <thead><tr>
+          <th scope="col">Model</th><th scope="col">R&sup2;</th><th scope="col">95% range</th><th scope="col">MAE</th>
+          <th scope="col">RMSE</th><th scope="col">Train R&sup2;</th><th scope="col">Overfit gap</th><th scope="col">Fit</th>
+        </tr></thead>
+        <tbody>
+          {(["baseline", ...FITTED] as const).map((m) => {
+            const r = data.reference[m];
+            return (
+              <tr>
+                <th scope="row">{MODEL_LABEL[m]}</th>
+                <td>{num(r.r2)}</td>
+                <td>{num(r.r2_ci[0])} to {num(r.r2_ci[1])}</td>
+                <td>{num(r.mae)}</td><td>{num(r.rmse)}</td>
+                <td>{m === "baseline" ? "n/a" : num(r.train_r2)}</td>
+                <td>{m === "baseline" ? "n/a" : num(r.overfit_gap)}</td>
+                <td>{r.fit ? FIT_TEXT[r.fit] : "n/a"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted note">
+      Fit flags are rules of thumb, not tests: a train-to-test R&sup2; gap above {data.overfit_gap_threshold} reads as possible
+      overfit, and a model at or below the naive baseline reads as possible underfit.
+    </p>
+  </section>
+
+  <section aria-labelledby="drop">
+    <h3 id="drop">Take a group away</h3>
+    <p class="muted sub">
+      Each row retrains the model without one group of inputs. Change is the difference in R&sup2; from the all-inputs run;
+      p is the paired bootstrap test of that difference.
+    </p>
+    {FITTED.map((m) => (
+      <div class="block">
+        <h4>{MODEL_LABEL[m]} <span class="muted base">all inputs: R&sup2; {num(data.reference[m].r2)}</span></h4>
+        <div class="scroll card" tabindex="0" role="region" aria-label={`${MODEL_LABEL[m]} without each group, scrolls sideways on small screens`}>
+          <table>
+            <caption class="sr-only">{MODEL_LABEL[m]} with each input group removed</caption>
+            <thead><tr>
+              <th scope="col">Group removed</th><th scope="col">Inputs left</th><th scope="col">R&sup2;</th>
+              <th scope="col">Change</th><th scope="col">p</th><th scope="col">MAE</th><th scope="col">What it means</th>
+            </tr></thead>
+            <tbody>
+              {data.experiments.map((e) => {
+                const r = e.models[m];
+                const v = verdict(r);
+                return (
+                  <tr>
+                    <th scope="row">{e.group} <span class="muted n">({e.removed.length})</span></th>
+                    <td>{e.n_kept}</td>
+                    <td>{num(r.r2)}</td>
+                    <td class={`v-${v}`}>{signed(r.delta_r2)}</td>
+                    <td>{pText(r.p_value)}</td>
+                    <td>{num(r.mae)}</td>
+                    <td class={`v-${v}`}>{VERDICT_TEXT[v]}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    ))}
+    <p class="muted note">
+      A drop that is "clearly worse" says the group carries real information. "No clear difference" doesn't prove a group is
+      useless: inputs that overlap can stand in for each other. The tests compare a lot of rows at once, so treat a p-value near {ALPHA} with care.
+    </p>
+  </section>
+
+  <section aria-labelledby="imp">
+    <h3 id="imp">What the models lean on</h3>
+    <p class="muted sub">Top inputs by importance in the all-inputs run. Importance shows what a model uses, not what causes points.</p>
+    <div class="imps">
+      {(["random_forest", "xgboost"] as const).map((m) => (
+        <div class="card imp">
+          <h4>{MODEL_LABEL[m]}</h4>
+          <ol>
+            {data.importances[m].map((i) => (
+              <li>
+                <span class="f">{i.feature}</span>
+                <svg viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+                  <rect x="0" y="0" width="100" height="8" class="trk" />
+                  <rect x="0" y="0" width={(i.importance / maxImp(m)) * 100} height="8" class="bar" />
+                </svg>
+                <span class="val">{i.importance.toFixed(3)}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <p class="muted note end">
+    Fixed run, {ran}. Training used {trained}; scoring used {data.test_season} only. The page is rebuilt from a new run when
+    the model or its inputs change, not after each data refresh.
+  </p>
+</Base>
+
+<style>
+  h2 { font-size: clamp(34px, 6vw, 52px); font-weight: 900; }
+  h4 { font-size: 22px; font-weight: 800; margin-bottom: 8px; }
+  .lede { max-width: 62ch; margin: 8px 0 22px; }
+  .how { padding: 18px 20px; margin-bottom: 8px; }
+  h3 { font-size: clamp(22px, 3vw, 28px); font-weight: 900; }
+  .how h3 { font-size: 24px; margin-bottom: 10px; }
+  .how ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 80ch; }
+  section { margin-top: clamp(28px, 5vw, 48px); }
+  .sub { margin: 6px 0 14px; max-width: 70ch; }
+  .note { margin-top: 12px; font-size: 14px; max-width: 80ch; }
+  .end { margin-top: 40px; }
+  .block { margin-top: 22px; }
+  .base { font: 600 14px/1 var(--text); text-transform: none; letter-spacing: 0; margin-left: 8px; }
+  .scroll { overflow-x: auto; }
+  .scroll:focus-visible { outline: 3px solid var(--marker); outline-offset: 2px; }
+  table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 15px; }
+  th, td { padding: 9px 12px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  tbody tr:last-child > * { border-bottom: 0; }
+  thead th { font: 700 12px/1.2 var(--text); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  th[scope="row"], thead th:first-child, td:last-child, thead th:last-child { text-align: left; }
+  th[scope="row"] { font-weight: 600; }
+  .n { font-weight: 400; }
+  .v-worse { color: #ff9aa5; }
+  .v-better { color: var(--good); }
+  .v-none { color: var(--muted); }
+  .imps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  @media (max-width: 760px) { .imps { grid-template-columns: minmax(0, 1fr); } }
+  .imp { padding: 14px 16px; }
+  .imp ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .imp li { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 3.2em; gap: 10px; align-items: center; font-size: 14px; }
+  .f { overflow-wrap: anywhere; }
+  .imp svg { width: 100%; height: 8px; display: block; }
+  .trk { fill: var(--surface-2); }
+  .bar { fill: var(--marker); }
+  .val { text-align: right; color: var(--muted); }
+</style>
