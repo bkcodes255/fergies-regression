@@ -11,9 +11,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from config.settings import ENTRY_ID
 from src.fpl_write.client import get_my_team, login_via_cookie, set_captain
 
-ENTRY_ID = 8851945
+if ENTRY_ID is None:
+    sys.exit("FPL_ENTRY_ID is not set in .env")
+
 ORIGINAL_CAPTAIN = 12  # Saka
 ORIGINAL_VICE = 40  # Rogers
 

@@ -12,10 +12,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from config.settings import ENTRY_ID
 from src.fpl_write.client import get_my_team, login_via_cookie
 
+if ENTRY_ID is None:
+    sys.exit("FPL_ENTRY_ID is not set in .env")
+
 TRANSFERS_URL = "https://fantasy.premierleague.com/api/transfers/"
-ENTRY_ID = 8851945
 NEXT_EVENT = 2
 ELEMENT_OUT = 473  # Aina (DEF, NFO) - sell back
 ELEMENT_IN = 329  # Rodon (DEF, LEE) - buy back
