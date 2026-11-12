@@ -12,10 +12,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from config.settings import ENTRY_ID
 from src.fpl_write.client import login_via_cookie
 
+if ENTRY_ID is None:
+    sys.exit("FPL_ENTRY_ID is not set in .env")
+
 TRANSFERS_URL = "https://fantasy.premierleague.com/api/transfers/"
-ENTRY_ID = 8851945
 NEXT_EVENT = 2  # GW1 is finished, GW2 hasn't started - this transfer would apply to GW2
 ELEMENT_OUT = 329  # Rodon (DEF, LEE), bench, 4.5m
 ELEMENT_IN = 473  # Aina (DEF, NFO), 4.5m - same price/position, zero squad overlap
